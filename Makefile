@@ -1,4 +1,5 @@
 SHELL := /bin/bash
+#SHELL := /run/current-system/sw/bin/bash
 
 .PHONY: all regression
 

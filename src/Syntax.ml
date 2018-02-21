@@ -2,6 +2,7 @@
    The library provides "@type ..." syntax extension and plugins like show, etc.
 *)
 open GT 
+open List
     
 (* Simple expressions: syntax and semantics *)
 module Expr =
@@ -41,7 +42,24 @@ module Expr =
        Takes a state and an expression, and returns the value of the expression in 
        the given state.
     *)
-    let eval _ = failwith "Not implemented yet"
+    let rec eval st ex = 
+        match ex with
+        | Const i -> i
+        | Var s -> st s
+        | Binop ("+", a, b) -> eval st a + eval st b
+        | Binop ("-", a, b) -> eval st a - eval st b
+        | Binop ("*", a, b) -> eval st a * eval st b
+        | Binop ("/", a, b) -> eval st a / eval st b
+        | Binop ("%", a, b) -> eval st a mod eval st b
+        | Binop ("<", a, b) -> if eval st a < eval st b then 1 else 0
+        | Binop (">", a, b) -> if eval st a > eval st b then 1 else 0
+        | Binop ("<=", a, b) -> if eval st a <= eval st b then 1 else 0
+        | Binop (">=", a, b) -> if eval st a >= eval st b then 1 else 0
+        | Binop ("==", a, b) -> if eval st a == eval st b then 1 else 0
+        | Binop ("!=", a, b) -> if eval st a != eval st b then 1 else 0
+        | Binop ("&&", a, b) -> if eval st a != 0 && eval st b != 0 then 1 else 0
+        | Binop ("!!", a, b) -> if eval st a != 0 || eval st b != 0 then 1 else 0
+        | v -> failwith "invalid syntax";;
 
   end
                     
@@ -65,7 +83,14 @@ module Stmt =
 
        Takes a configuration and a statement, and returns another configuration
     *)
-    let eval _ = failwith "Not implemented yet"
+    let rec eval cfg st = 
+        let (state, inp, out) = cfg in
+        match st with
+        | Read s -> ((Expr.update s (hd inp) state), (tl inp), out)
+        | Write ex -> (state, inp, (append out [Expr.eval state ex]))
+        | Assign (var, ex) -> ((Expr.update var (Expr.eval state ex) state), inp, out)
+        | Seq (s1, s2) -> eval (eval cfg s1) s2
+        | v -> failwith "invalid syntax";;
                                                          
   end
 
