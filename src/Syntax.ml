@@ -89,8 +89,7 @@ module Stmt =
         | Read s -> ((Expr.update s (hd inp) state), (tl inp), out)
         | Write ex -> (state, inp, (append out [Expr.eval state ex]))
         | Assign (var, ex) -> ((Expr.update var (Expr.eval state ex) state), inp, out)
-        | Seq (s1, s2) -> eval (eval cfg s1) s2
-        | v -> failwith "invalid syntax";;
+        | Seq (s1, s2) -> eval (eval cfg s1) s2;;
                                                          
   end
 
