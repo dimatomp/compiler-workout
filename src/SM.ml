@@ -25,19 +25,17 @@ type config = int list * Stmt.config
 
    Takes a configuration and a program, and returns a configuration as a result
  *)                         
-let rec eval cfg prg = 
+let rec eval cfg prg = if length prg == 0 then cfg else
     let (stack, config) = cfg in
     let (state, inp, out) = config in
-    let fst = nth stack 2 in
-    let snd = hd stack in
-    let rem = tl (tl stack) in
     let nextCfg = match hd prg with
         | BINOP op -> 
-                let opResult = Expr.eval state (Expr.Binop (op, Expr.Const fst, Expr.Const snd)) in
-                (opResult :: rem, config)
-        | READ -> ((hd inp) :: stack, (state, tl inp, out))
+                let opResult = Expr.eval state (Expr.Binop (op, Expr.Const (nth stack 1), Expr.Const (hd stack))) in
+                (opResult :: tl (tl stack), config)
+        | CONST c -> (c :: stack, config)
+        | READ -> (hd inp :: stack, (state, tl inp, out))
         | WRITE -> (tl stack, (state, inp, append out [hd stack]))
-        | LD name -> ((state name) :: stack, config)
+        | LD name -> (state name :: stack, config)
         | ST name -> (tl stack, (Expr.update name (hd stack) state, inp, out))
     in eval nextCfg (tl prg)
 
@@ -58,7 +56,10 @@ let run i p = let (_, (_, _, o)) = eval ([], (Syntax.Expr.empty, i, [])) p in o
  *)
 
 let rec compile = 
-    let compExpr _ = failwith "Not yet implemented"
+    let rec compExpr = function
+        | Expr.Const x -> [CONST x]
+        | Expr.Var s -> [LD s]
+        | Expr.Binop (op, f, s) -> append (compExpr f) (append (compExpr s) [BINOP op])
     in function
         | Stmt.Read x -> [READ; ST x]
         | Stmt.Write t -> append (compExpr t) [WRITE]
