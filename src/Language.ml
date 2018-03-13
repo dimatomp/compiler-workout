@@ -71,19 +71,21 @@ module Expr =
    
     *)
     ostap (
-      parse: f:compEx o:booleanOp s:parse {Binop (o, f, s)} | compEx;
-      booleanOp: "&&" | "!!";
-
-      compEx: f:addEx o:compareOp s:compEx {Binop (o, f, s)} | addEx;
-      compareOp: "<" | ">" | "<=" | ">=" | "==" | "!=";
-
-      addEx: f:multEx o:additivOp s:addEx {Binop (o, f, s)} | multEx;
-      additivOp: "+" | "-";
-
-      multEx: f:primary o:multiplOp s:multEx {Binop (o, f, s)} | primary;
-      multiplOp: "*" | "/" | "%";
-
-      primary: n:IDENT {Var n} | x:DECIMAL {Const (int_of_string x)} | -"(" parse -")"
+      parse: !(Ostap.Util.expr                                         
+                (fun x -> x)                                     
+                (Array.map (fun (a, s) -> a, List.map (fun s -> ostap(- $(s)), (fun x y -> Binop (s, x, y))) s) 
+                  [|
+                    `Lefta, ["!!"];
+                    `Lefta, ["&&"];
+                    `Nona , ["=="; "!="; "<="; "<"; ">="; ">"];
+                    `Lefta, ["+" ; "-"];
+                    `Lefta, ["*" ; "/"; "%"];
+                  |] 
+                )
+                primary                                          
+              );
+      primary: n:IDENT {Var n} | x:DECIMAL {Const x} | parent;
+      parent: -"(" parse -")"
     )
 
   end
@@ -119,7 +121,7 @@ module Stmt =
     (* Statement parser *)
     ostap (
       parse: f:singleOp ";" s:parse {Seq (f, s)} | singleOp;
-      singleOp: "read" -"(" s:IDENT -")" {Read s} | "write" -"(" ex:!(Expr.parse) -")" {Write ex} | x:IDENT ":=" ex:!(Expr.parse) {Assign (x, ex)}
+      singleOp: "read" "(" s:IDENT ")" {Read s} | "write" ex:!(Expr.parent) {Write ex} | x:IDENT ":=" ex:!(Expr.parse) {Assign (x, ex)}
     )
       
   end
