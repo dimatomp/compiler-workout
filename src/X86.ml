@@ -80,7 +80,19 @@ open SM
    Take an environment, a stack machine program, and returns a pair --- the updated environment and the list
    of x86 instructions
 *)
-let compile env code = failwith "Not yet implemented"
+let rec compile env = function
+    | [] -> env, [Ret]
+    | inst::rem -> 
+            let cEnv, cInst = match inst with
+            | BINOP name -> let y, x, env = env#pop2 in env#push x, [Binop (name, y, x)]
+            | CONST cst -> let x, env = env#allocate in env, [Mov (L cst, x)]
+            | READ -> let x, env = env#allocate in env, [Call "Lread"; Mov (eax, x)]
+            | WRITE -> let x, env = env#pop in env, [Push x; Call "Lwrite"; Pop eax]
+            | LD name -> let env = env#global name in let x, env = env#allocate in env, [Mov (M (env#loc name), x)]
+            | ST name -> let x, env = env#pop in env, [Mov (x, M (env#loc name))]
+            in
+            let nEnv, rInst = compile cEnv rem
+            in nEnv, List.append cInst rInst
 
 (* A set of strings *)           
 module S = Set.Make (String)
