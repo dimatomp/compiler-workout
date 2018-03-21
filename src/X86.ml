@@ -81,15 +81,26 @@ open SM
    of x86 instructions
 *)
 let rec compile env = function
-    | [] -> env, [Ret]
+    | [] -> env, []
     | inst::rem -> 
             let cEnv, cInst = match inst with
-            | BINOP name -> let y, x, env = env#pop2 in env#push x, [Binop (name, y, x)]
+            | BINOP name -> let y, x, env = env#pop2 in
+                            let commands = match name with
+                            | "/" -> [Mov (x, eax); Cltd; IDiv y; Mov (eax, x)]
+                            | "%" -> [Mov (x, eax); Cltd; IDiv y; Mov (edx, x)]
+                            | "<" -> [Binop("^", eax, eax); Binop("-", y, x); Set ("l", "%al"); Mov (eax, x)]
+                            | "<=" -> [Binop("^", eax, eax); Binop("-", y, x); Set ("le", "%al"); Mov (eax, x)]
+                            | ">" -> [Binop("^", eax, eax); Binop("-", y, x); Set ("g", "%al"); Mov (eax, x)]
+                            | ">=" -> [Binop("^", eax, eax); Binop("-", y, x); Set ("ge", "%al"); Mov (eax, x)]
+                            | "==" -> [Binop("^", eax, eax); Binop("-", y, x); Set ("e", "%al"); Mov (eax, x)]
+                            | "!=" -> [Binop("^", eax, eax); Binop("-", y, x); Set ("ne", "%al"); Mov (eax, x)]
+                            | _ -> [Binop (name, y, x)]
+                            in env#push x, commands
             | CONST cst -> let x, env = env#allocate in env, [Mov (L cst, x)]
             | READ -> let x, env = env#allocate in env, [Call "Lread"; Mov (eax, x)]
-            | WRITE -> let x, env = env#pop in env, [Push x; Call "Lwrite"; Pop eax]
+            | WRITE -> let x, env = env#pop in env, [Push x; Call "Lwrite"; Binop ("+", L 4, esp)]
             | LD name -> let env = env#global name in let x, env = env#allocate in env, [Mov (M (env#loc name), x)]
-            | ST name -> let x, env = env#pop in env, [Mov (x, M (env#loc name))]
+            | ST name -> let x, env = (env#global name)#pop in env, [Mov (x, M (env#loc name))]
             in
             let nEnv, rInst = compile cEnv rem
             in nEnv, List.append cInst rInst
