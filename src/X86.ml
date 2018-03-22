@@ -95,7 +95,7 @@ let rec compile env = function
                             | "==" -> [Mov (x, eax); Binop("-", y, eax); Set ("e", "%al"); Binop ("&&", L 1, eax); Mov (eax, x)]
                             | "!=" -> [Mov (x, eax); Binop("-", y, eax); Set ("ne", "%al"); Binop ("&&", L 1, eax); Mov (eax, x)]
                             | "!!" -> [Mov (x, eax); Binop("!!", y, eax); Set ("nz", "%al"); Binop ("&&", L 1, eax); Mov (eax, x)]
-                            | "&&" -> [Mov (y, eax); Binop("&&", eax, eax); Set ("nz", "%al"); Mov (x, edx); Binop ("&&", edx, edx); Set ("nz", "%ah"); Binop ("^", L 257, eax); Set ("z", "%al"); Mov (eax, x)]
+                            | "&&" -> [Mov (y, eax); Binop("&&", eax, eax); Set ("nz", "%al"); Mov (x, edx); Binop ("&&", edx, edx); Set ("nz", "%ah"); Binop ("^", L 257, eax); Set ("z", "%al"); Binop ("&&", L 1, eax); Mov (eax, x)]
                             | _ -> [Mov (x, eax); Binop (name, y, eax); Mov (eax, x)]
                             in env#push x, commands
             | CONST cst -> let x, env = env#allocate in env, [Mov (L cst, x)]
