@@ -88,21 +88,21 @@ let rec compile env = function
                             let commands = match name with
                             | "/" -> [Mov (x, eax); Cltd; IDiv y; Mov (eax, x)]
                             | "%" -> [Mov (x, eax); Cltd; IDiv y; Mov (edx, x)]
-                            | "<" -> [Binop("^", eax, eax); Binop("-", y, x); Set ("l", "%al"); Mov (eax, x)]
-                            | "<=" -> [Binop("^", eax, eax); Binop("-", y, x); Set ("le", "%al"); Mov (eax, x)]
-                            | ">" -> [Binop("^", eax, eax); Binop("-", y, x); Set ("g", "%al"); Mov (eax, x)]
-                            | ">=" -> [Binop("^", eax, eax); Binop("-", y, x); Set ("ge", "%al"); Mov (eax, x)]
-                            | "==" -> [Binop("^", eax, eax); Binop("-", y, x); Set ("e", "%al"); Mov (eax, x)]
-                            | "!=" -> [Binop("^", eax, eax); Binop("-", y, x); Set ("ne", "%al"); Mov (eax, x)]
-                            | "!!" -> [Binop("!!", y, x); Binop("^", eax, eax); Binop("&&", x, x); Set ("nz", "%al"); Mov (eax, x)]
-                            | "&&" -> [Binop("^", eax, eax); Binop("&&", y, y); Set ("nz", "%al"); Binop ("&&", x, x); Set ("nz", "%ah"); Binop ("^", L 257, eax); Set ("z", "%al"); Mov (eax, x)]
-                            | _ -> [Binop (name, y, x)]
+                            | "<" -> [Mov (x, eax); Binop("-", y, eax); Set ("l", "%al"); Binop ("&&", L 1, eax); Mov (eax, x)]
+                            | "<=" -> [Mov (x, eax); Binop("-", y, eax); Set ("le", "%al"); Binop ("&&", L 1, eax); Mov (eax, x)]
+                            | ">" -> [Mov (x, eax); Binop("-", y, eax); Set ("g", "%al"); Binop ("&&", L 1, eax); Mov (eax, x)]
+                            | ">=" -> [Mov (x, eax); Binop("-", y, eax); Set ("ge", "%al"); Binop ("&&", L 1, eax); Mov (eax, x)]
+                            | "==" -> [Mov (x, eax); Binop("-", y, eax); Set ("e", "%al"); Binop ("&&", L 1, eax); Mov (eax, x)]
+                            | "!=" -> [Mov (x, eax); Binop("-", y, eax); Set ("ne", "%al"); Binop ("&&", L 1, eax); Mov (eax, x)]
+                            | "!!" -> [Mov (x, eax); Binop("!!", y, eax); Set ("nz", "%al"); Binop ("&&", L 1, eax); Mov (eax, x)]
+                            | "&&" -> [Mov (y, eax); Binop("&&", eax, eax); Set ("nz", "%al"); Mov (x, edx); Binop ("&&", edx, edx); Set ("nz", "%ah"); Binop ("^", L 257, eax); Set ("z", "%al"); Mov (eax, x)]
+                            | _ -> [Mov (x, eax); Binop (name, y, eax); Mov (eax, x)]
                             in env#push x, commands
             | CONST cst -> let x, env = env#allocate in env, [Mov (L cst, x)]
             | READ -> let x, env = env#allocate in env, [Call "Lread"; Mov (eax, x)]
-            | WRITE -> let x, env = env#pop in env, [Push x; Call "Lwrite"; Binop ("+", L 4, esp)]
-            | LD name -> let env = env#global name in let x, env = env#allocate in env, [Mov (M (env#loc name), x)]
-            | ST name -> let x, env = (env#global name)#pop in env, [Mov (x, M (env#loc name))]
+            | WRITE -> let x, env = env#pop in env, [Mov (x, eax); Push eax; Call "Lwrite"; Binop ("+", L 4, esp)]
+            | LD name -> let env = env#global name in let x, env = env#allocate in env, [Mov (M (env#loc name), eax); Mov (eax, x)]
+            | ST name -> let x, env = (env#global name)#pop in env, [Mov (x, eax); Mov (eax, M (env#loc name))]
             in
             let nEnv, rInst = compile cEnv rem
             in nEnv, List.append cInst rInst
