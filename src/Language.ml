@@ -131,7 +131,16 @@ module Stmt =
     (* Statement parser *)
     ostap (
       parse: f:singleOp ";" s:parse {Seq (f, s)} | singleOp;
-      singleOp: "read" "(" s:IDENT ")" {Read s} | "write" ex:!(Expr.parent) {Write ex} | x:IDENT ":=" ex:!(Expr.parse) {Assign (x, ex)}
+      singleOp: read | write | assign | skip | cond | whle | repeat | foreach
+      read: "read" "(" s:IDENT ")" {Read s}
+      write: "write" ex:!(Expr.parent) {Write ex}
+      assign: x:IDENT ":=" ex:!(Expr.parse) {Assign (x, ex)}
+      skip: "skip" {Skip}
+      cond: "if" c:!(Expr.parse) "then" t:parse f:condElse {If c t f}
+      condElse: "elif" c:!(Expr.parse) "then" t:parse f:condElse {If c t f} | "fi" {Skip}
+      whle: "while" c:!(Expr.parse) "do" b:parse "od" {While c b}
+      repeat: "repeat" b:parse "until" c:!(Expr.parse) {Seq (b, While c b)}
+      foreach: "for" ini:parse "," c:!(Expr.parse) "," inc:parse "do" b:parse "od" {For ini c inc b}
     )
       
   end
