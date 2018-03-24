@@ -103,7 +103,7 @@ module Stmt =
     (* empty statement                  *) | Skip
     (* conditional                      *) | If     of Expr.t * t * t
     (* loop with a pre-condition        *) | While  of Expr.t * t
-    (* loop with a post-condition       *) (* add yourself *)  with show
+    (* loop with a post-condition       *) | For    of t * Expr.t * t * t  with show
                                                                     
     (* The type of configuration: a state, an input stream, an output stream *)
     type config = Expr.state * int list * int list 
@@ -121,6 +121,12 @@ module Stmt =
         | Write ex -> (state, inp, (append out [Expr.eval state ex]))
         | Assign (var, ex) -> ((Expr.update var (Expr.eval state ex) state), inp, out)
         | Seq (s1, s2) -> eval (eval cfg s1) s2;;
+        | Skip -> cfg
+        | If cond tbrc fbrc -> eval cfg (if Expr.eval state cond != 0 then tbrc else fbrc)
+        | While cond body -> if Expr.eval state cond == 0 then cfg else eval (eval cfg body) st
+        | For init cond incr body -> 
+                let cfg1 = eval cfg init in
+                if Expr.eval cfg1 conf == 0 then cfg1 else eval (eval (eval cfg1 body) incr) st
 
     (* Statement parser *)
     ostap (
