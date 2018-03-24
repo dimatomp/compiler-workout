@@ -1,5 +1,6 @@
 open GT       
 open Language
+open List
        
 (* The type for the stack machine instructions *)
 @type insn =
@@ -52,5 +53,14 @@ let run p i =
 
    Takes a program in the source language and returns an equivalent program for the
    stack machine
-*)
-let compile p = failwith "Not yet implemented"
+ *)
+let rec compile = 
+    let rec compExpr = function
+        | Expr.Const x -> [CONST x]
+        | Expr.Var s -> [LD s]
+        | Expr.Binop (op, f, s) -> append (compExpr f) (append (compExpr s) [BINOP op])
+    in function
+        | Stmt.Read x -> [READ; ST x]
+        | Stmt.Write t -> append (compExpr t) [WRITE]
+        | Stmt.Assign (name, ex) -> append (compExpr ex) [ST name]
+        | Stmt.Seq (s1, s2) -> append (compile s1) (compile s2);;
