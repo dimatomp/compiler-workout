@@ -120,27 +120,27 @@ module Stmt =
         | Read s -> ((Expr.update s (hd inp) state), (tl inp), out)
         | Write ex -> (state, inp, (append out [Expr.eval state ex]))
         | Assign (var, ex) -> ((Expr.update var (Expr.eval state ex) state), inp, out)
-        | Seq (s1, s2) -> eval (eval cfg s1) s2;;
+        | Seq (s1, s2) -> eval (eval cfg s1) s2
         | Skip -> cfg
-        | If cond tbrc fbrc -> eval cfg (if Expr.eval state cond != 0 then tbrc else fbrc)
-        | While cond body -> if Expr.eval state cond == 0 then cfg else eval (eval cfg body) st
-        | For init cond incr body -> 
+        | If (cond, tbrc, fbrc) -> eval cfg (if Expr.eval state cond != 0 then tbrc else fbrc)
+        | While (cond, body) -> if Expr.eval state cond == 0 then cfg else eval (eval cfg body) st
+        | For (init, cond, incr, body) -> 
                 let cfg1 = eval cfg init in
-                if Expr.eval cfg1 conf == 0 then cfg1 else eval (eval (eval cfg1 body) incr) st
+                if Expr.eval state cond == 0 then cfg1 else eval (eval (eval cfg1 body) incr) st;;
 
     (* Statement parser *)
     ostap (
       parse: f:singleOp ";" s:parse {Seq (f, s)} | singleOp;
-      singleOp: read | write | assign | skip | cond | whle | repeat | foreach
-      read: "read" "(" s:IDENT ")" {Read s}
-      write: "write" ex:!(Expr.parent) {Write ex}
-      assign: x:IDENT ":=" ex:!(Expr.parse) {Assign (x, ex)}
-      skip: "skip" {Skip}
-      cond: "if" c:!(Expr.parse) "then" t:parse f:condElse {If c t f}
-      condElse: "elif" c:!(Expr.parse) "then" t:parse f:condElse {If c t f} | "fi" {Skip}
-      whle: "while" c:!(Expr.parse) "do" b:parse "od" {While c b}
-      repeat: "repeat" b:parse "until" c:!(Expr.parse) {Seq (b, While c b)}
-      foreach: "for" ini:parse "," c:!(Expr.parse) "," inc:parse "do" b:parse "od" {For ini c inc b}
+      singleOp: read | write | assign | skip | cond | whle | repeat | foreach;
+      read: "read" "(" s:IDENT ")" {Read s};
+      write: "write" ex:!(Expr.parent) {Write ex};
+      assign: x:IDENT ":=" ex:!(Expr.parse) {Assign (x, ex)};
+      skip: "skip" {Skip};
+      cond: "if" c:!(Expr.parse) "then" t:parse f:condElse {If (c, t, f)};
+      condElse: "elif" c:!(Expr.parse) "then" t:parse f:condElse {If (c, t, f)} | "fi" {Skip};
+      whle: "while" c:!(Expr.parse) "do" b:parse "od" {While (c, b)};
+      repeat: "repeat" b:parse "until" c:!(Expr.parse) {Seq (b, While (c, b))};
+      foreach: "for" ini:parse "," c:!(Expr.parse) "," inc:parse "do" b:parse "od" {For (ini, c, inc, b)}
     )
       
   end
