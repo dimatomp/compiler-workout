@@ -43,7 +43,7 @@ let rec eval env conf = function
         | READ              -> 
                 let r :: cInp = inp in 
                 (r :: stack, (vars, cInp, out)), progRem
-        | WRITE             -> let x :: rem = stack in (rem, (vars, inp, x :: out)), progRem
+        | WRITE             -> let x :: rem = stack in (rem, (vars, inp, append out [x])), progRem
         | LD name           -> (vars name :: stack, sCfg), progRem 
         | ST name           -> let x :: rem = stack in (rem, (Expr.update name x vars, inp, out)), progRem
         | LABEL name        -> conf, progRem
@@ -69,7 +69,7 @@ let run p i =
   let m = make_map M.empty p in
   let (_, (_, _, o)) = eval (object method labeled l = M.find l m end) ([], (Expr.empty, i, [])) p in o
 
-(* Stack machine jompiler
+(* Stack machine compiler
 
      val compile : Language.Stmt.t -> prg
 
