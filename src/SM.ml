@@ -29,29 +29,29 @@ type config = int list * Stmt.config
    Takes an environment, a configuration and a program, and returns a configuration as a result. The
    environment is used to locate a label to jump to (via method env#labeled <label_name>)
 *)                         
-let rec eval env conf prog = 
-    let cInst :: progRem = prog in
-    let (stack, sCfg) = conf in
-    let (vars, inp, out) = sCfg in
-    let x :: rem = stack in 
-    let (cCfg, cont) = match cInst with
-    | BINOP op          -> 
-            let y :: rem = rem in 
-            let calcResult = Expr.eval vars (Expr.Binop (op, Expr.Const y, Expr.Const x)) in
-            (calcResult :: rem, sCfg), progRem
-    | CONST v           -> (v :: stack, sCfg), progRem
-    | READ              -> 
-            let r :: cInp = inp in 
-            (r :: stack, (vars, cInp, out)), progRem
-    | WRITE             -> (rem, (vars, inp, x :: out)), progRem
-    | LD name           -> (vars name :: stack, sCfg), progRem 
-    | ST name           -> (rem, (Expr.update name x vars, inp, out)), progRem
-    | LABEL name        -> conf, progRem
-    | JMP name          -> conf, env#labeled name
-    | CJMP ("z", name)  -> (rem, sCfg), if x == 0 then env#labeled name else progRem
-    | CJMP ("nz", name) -> (rem, sCfg), if x != 0 then env#labeled name else progRem
-    in 
-    eval env cCfg cont
+let rec eval env conf = function
+    | [] -> conf
+    | cInst :: progRem -> 
+        let stack, sCfg = conf in
+        let vars, inp, out = sCfg in
+        let cCfg, cont = match cInst with
+        | BINOP op          -> 
+                let x :: y :: rem = stack in 
+                let calcResult = Expr.eval vars (Expr.Binop (op, Expr.Const y, Expr.Const x)) in
+                (calcResult :: rem, sCfg), progRem
+        | CONST v           -> (v :: stack, sCfg), progRem
+        | READ              -> 
+                let r :: cInp = inp in 
+                (r :: stack, (vars, cInp, out)), progRem
+        | WRITE             -> let x :: rem = stack in (rem, (vars, inp, x :: out)), progRem
+        | LD name           -> (vars name :: stack, sCfg), progRem 
+        | ST name           -> let x :: rem = stack in (rem, (Expr.update name x vars, inp, out)), progRem
+        | LABEL name        -> conf, progRem
+        | JMP name          -> conf, env#labeled name
+        | CJMP ("z", name)  -> let x :: rem = stack in (rem, sCfg), if x == 0 then env#labeled name else progRem
+        | CJMP ("nz", name) -> let x :: rem = stack in (rem, sCfg), if x != 0 then env#labeled name else progRem
+        in 
+        eval env cCfg cont
 
 (* Top-level evaluation
 
