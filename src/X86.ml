@@ -89,7 +89,7 @@ open SM
 let rec compile env = function
     | [] -> env, []
     | inst::rem -> 
-            let cEnv, cInst = match inst with
+            let env, cInst = match inst with
             | BINOP name -> let y, x, env = env#pop2 in
                             let commands = match name with
                             | "/" -> [Mov (x, eax); Cltd; IDiv y; Mov (eax, x)]
@@ -109,9 +109,12 @@ let rec compile env = function
             | WRITE -> let x, env = env#pop in env, [Mov (x, eax); Push eax; Call "Lwrite"; Binop ("+", L 4, esp)]
             | LD name -> let env = env#global name in let x, env = env#allocate in env, [Mov (M (env#loc name), eax); Mov (eax, x)]
             | ST name -> let x, env = (env#global name)#pop in env, [Mov (x, eax); Mov (eax, M (env#loc name))]
+            | LABEL name -> env, [Label name]
+            | JMP name -> env, [Jmp name]
+            | CJMP (cnd, name) -> let x, env = env#pop in env, [Mov (x, eax); Binop ("&&", eax, eax); CJmp (cnd, name)]
             in
-            let nEnv, rInst = compile cEnv rem
-            in nEnv, List.append cInst rInst
+            let env, rInst = compile env rem in 
+            env, List.append cInst rInst
 
 (* A set of strings *)           
 module S = Set.Make (String)

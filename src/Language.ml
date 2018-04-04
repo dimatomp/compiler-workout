@@ -45,8 +45,7 @@ module Expr =
        Takes a state and an expression, and returns the value of the expression in 
        the given state.
     *)
-    let rec eval st ex = 
-        match ex with
+    let rec eval st = function
         | Const i -> i
         | Var s -> st s
         | Binop ("+", a, b) -> eval st a + eval st b
