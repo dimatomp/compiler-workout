@@ -1,1 +1,3 @@
-make check && make -C expressions check && make -C deep-expressions check
+make check
+pushd expressions && make check && popd
+pushd deep-expressions && make check && popd
