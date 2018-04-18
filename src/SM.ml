@@ -38,7 +38,7 @@ let rec eval env ((cstack, stack, ((st, i, o) as c)) as conf) = function
         let cCfg, cont = match (cInst, cstack) with
         | BINOP op, _                   ->
                 let x :: y :: stack = stack in
-                let calcResult = Expr.eval st (Expr.Binop (op, Expr.Const y, Expr.Const x)) in
+                let calcResult = Expr.evalBinop op y x in
                 (cstack, calcResult :: stack, c), progRem
         | CONST v, _                    -> (cstack, v :: stack, c), progRem
         | READ, _                       ->
@@ -116,7 +116,8 @@ let compile (defs, stmt) =
                 let sLabel, lState = getLabel lState in
                 let fLabel, lState = getLabel lState in
                 append (LABEL sLabel :: condition) (append (CJMP ("z", fLabel) :: bodyCode) [JMP sLabel; LABEL fLabel]), lState
-        | Stmt.Return expr -> append (compExpr expr) [END], lState
+        | Stmt.Return None -> [END], lState
+        | Stmt.Return (Some expr) -> append (compExpr expr) [END], lState
         | Stmt.Call (name, args) -> compExpr (Expr.Call (name, args)), lState
     in
     let result, lState = compileImpl 0 stmt in

@@ -62,6 +62,22 @@ module Expr =
     (* The type of configuration: a state, an input stream, an output stream, an optional value *)
     type config = State.t * int list * int list * int option
 
+    let evalBinop op a b = match op with
+    | "+" -> a + b
+    | "-" -> a - b
+    | "*" -> a * b
+    | "/" -> a / b
+    | "%" -> a mod b
+    | "<" -> if a < b then 1 else 0
+    | ">" -> if a > b then 1 else 0
+    | ">=" -> if a >= b then 1 else 0
+    | "<=" -> if a <= b then 1 else 0
+    | "==" -> if a == b then 1 else 0
+    | "!=" -> if a != b then 1 else 0
+    | "&&" -> if a != 0 && b != 0 then 1 else 0
+    | "!!" -> if a != 0 || b != 0 then 1 else 0;;
+
+
     (* Expression evaluator
 
           val eval : env -> config -> t -> config
@@ -75,30 +91,13 @@ module Expr =
        which takes an environment (of the same type), a name of the function, a list of actual parameters and a configuration,
        an returns a pair: the return value for the call and the resulting configuration
     *)
-    let rec eval env ((st, i, o, r) as conf) =
-        let binop a b op = (op a b, conf) in
-        function
+    let rec eval env ((st, i, o, r) as conf) = function
         | Const r -> st, i, o, Some r
         | Var s -> st, i, o, Some (State.eval st s)
-        | Binop (op, a, b) =
+        | Binop (op, a, b) ->
                 let ( _, _, _, Some a) as conf = eval env conf a in
                 let (st, i, o, Some b) as conf = eval env conf b in
-                let res = match op with
-                | "+" -> a + b
-                | "-" -> a - b
-                | "*" -> a * b
-                | "/" -> a / b
-                | "%" -> a mod b
-                | "<" -> if a < b then 1 else 0
-                | ">" -> if a > b then 1 else 0
-                | ">=" -> if a >= b then 1 else 0
-                | "<=" -> if a <= b then 1 else 0
-                | "==" -> if a == b then 1 else 0
-                | "!=" -> if a != b then 1 else 0
-                | "&&" -> if a != 0 && b != 0 then 1 else 0
-                | "!!" -> if a != 0 || b != 0 then 1 else 0
-                in
-                st, i, o, Some res
+                st, i, o, Some (evalBinop op a b)
         | Call (name, args) ->
                 let evalArg (argv, conf) argEx = let (_, _, _, Some r) as conf = eval env conf argEx in r :: argv, conf in
                 let argv, conf = fold_left evalArg ([], conf) args in
@@ -168,7 +167,8 @@ module Stmt =
         | While (cond, body) as stmt ->
                 let (st, i, o, Some r) as conf = Expr.eval env conf cond in
                 if r != 0 then eval env conf body (Seq (stmt, k)) else proceed st i o
-        | Return ex -> Expr.eval env conf ex
+        | Return None      -> (st, i, o, None)
+        | Return (Some ex) -> Expr.eval env conf ex
         | Call (name, args) -> let (st, i, o, _) = Expr.eval env conf (Expr.Call (name, args)) in proceed st i o;;
 
     (* Statement parser *)
