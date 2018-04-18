@@ -91,6 +91,7 @@ let compile (defs, stmt) =
         | Expr.Const x -> [CONST x]
         | Expr.Var s -> [LD s]
         | Expr.Binop (op, f, s) -> append (compExpr f) (append (compExpr s) [BINOP op])
+        | Expr.Call (name, args) -> append (concat (map compExpr args)) [CALL name]
     in
     let getLabel cNum = "__l" ^ string_of_int cNum, cNum + 1 in
     let rec compileImpl lState = function
@@ -115,7 +116,8 @@ let compile (defs, stmt) =
                 let sLabel, lState = getLabel lState in
                 let fLabel, lState = getLabel lState in
                 append (LABEL sLabel :: condition) (append (CJMP ("z", fLabel) :: bodyCode) [JMP sLabel; LABEL fLabel]), lState
-        | Stmt.Call (name, args) -> append (concat (rev_map compExpr args)) [CALL name], lState
+        | Stmt.Return expr -> append (compExpr expr) [END], lState
+        | Stmt.Call (name, args) -> compExpr (Expr.Call (name, args)), lState
     in
     let result, lState = compileImpl 0 stmt in
     let compileFunc (result, lState) (name, (args, locals, body)) =
