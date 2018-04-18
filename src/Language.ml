@@ -61,38 +61,50 @@ module Expr =
 
     (* The type of configuration: a state, an input stream, an output stream, an optional value *)
     type config = State.t * int list * int list * int option
-                                                            
+
     (* Expression evaluator
 
-          val eval : env -> config -> t -> int * config
+          val eval : env -> config -> t -> config
 
 
-       Takes an environment, a configuration and an expresion, and returns another configuration. The 
+       Takes an environment, a configuration and an expresion, and returns another configuration. The
        environment supplies the following method
 
            method definition : env -> string -> int list -> config -> config
 
-       which takes an environment (of the same type), a name of the function, a list of actual parameters and a configuration, 
+       which takes an environment (of the same type), a name of the function, a list of actual parameters and a configuration,
        an returns a pair: the return value for the call and the resulting configuration
-    *)                                                       
-    let rec eval env ((st, i, o, r) as conf) = function
-        | Const i -> i
-        | Var s -> State.eval st s
-        | Binop ("+", a, b) -> eval st a + eval st b
-        | Binop ("-", a, b) -> eval st a - eval st b
-        | Binop ("*", a, b) -> eval st a * eval st b
-        | Binop ("/", a, b) -> eval st a / eval st b
-        | Binop ("%", a, b) -> eval st a mod eval st b
-        | Binop ("<", a, b) -> if eval st a < eval st b then 1 else 0
-        | Binop (">", a, b) -> if eval st a > eval st b then 1 else 0
-        | Binop ("<=", a, b) -> if eval st a <= eval st b then 1 else 0
-        | Binop (">=", a, b) -> if eval st a >= eval st b then 1 else 0
-        | Binop ("==", a, b) -> if eval st a == eval st b then 1 else 0
-        | Binop ("!=", a, b) -> if eval st a != eval st b then 1 else 0
-        | Binop ("&&", a, b) -> if eval st a != 0 && eval st b != 0 then 1 else 0
-        | Binop ("!!", a, b) -> if eval st a != 0 || eval st b != 0 then 1 else 0
+    *)
+    let rec eval env ((st, i, o, r) as conf) =
+        let binop a b op = (op a b, conf) in
+        function
+        | Const r -> st, i, o, Some r
+        | Var s -> st, i, o, Some (State.eval st s)
+        | Binop (op, a, b) =
+                let ( _, _, _, Some a) as conf = eval env conf a in
+                let (st, i, o, Some b) as conf = eval env conf b in
+                let res = match op with
+                | "+" -> a + b
+                | "-" -> a - b
+                | "*" -> a * b
+                | "/" -> a / b
+                | "%" -> a mod b
+                | "<" -> if a < b then 1 else 0
+                | ">" -> if a > b then 1 else 0
+                | ">=" -> if a >= b then 1 else 0
+                | "<=" -> if a <= b then 1 else 0
+                | "==" -> if a == b then 1 else 0
+                | "!=" -> if a != b then 1 else 0
+                | "&&" -> if a != 0 && b != 0 then 1 else 0
+                | "!!" -> if a != 0 || b != 0 then 1 else 0
+                in
+                st, i, o, Some res
+        | Call (name, args) ->
+                let evalArg (argv, conf) argEx = let (_, _, _, Some r) as conf = eval env conf argEx in r :: argv, conf in
+                let argv, conf = fold_left evalArg ([], conf) args in
+                env#definition env name (rev argv) conf
         | v -> failwith "invalid syntax";;
-         
+
     (* Expression parser. You can use the following terminals:
 
          IDENT   --- a non-empty identifier a-zA-Z[a-zA-Z0-9_]* as a string
@@ -131,32 +143,33 @@ module Stmt =
     (* empty statement                  *) | Skip
     (* conditional                      *) | If     of Expr.t * t * t
     (* loop with a pre-condition        *) | While  of Expr.t * t
+    (* return statement                 *) | Return of Expr.t option
     (* call a procedure                 *) | Call   of string * Expr.t list with show
 
     (* The type of configuration: a state, an input stream, an output stream *)
-    type config = State.t * int list * int list
+    type config = State.t * int list * int list * int option
 
     (* Statement evaluator
 
-           val eval : env -> config -> t -> config
+           val eval : env -> config -> t -> t -> config
 
-       Takes an environment, a configuration and a statement, and returns another configuration. The 
+       Takes an environment, a configuration and a statement, and returns another configuration. The
        environment is the same as for expressions
     *)
-    let rec eval env ((st, i, o, r) as conf) k = function
-        | Read s -> ((State.update s (hd i) st), (tl i), o)
-        | Write ex -> (st, i, (append o [Expr.eval st ex]))
-        | Assign (var, ex) -> ((State.update var (Expr.eval st ex) st), i, o)
-        | Seq (s1, s2) -> eval env (eval env conf s1) s2
-        | Skip -> conf
-        | If (cond, tbrc, fbrc) -> eval env conf (if Expr.eval st cond != 0 then tbrc else fbrc)
-        | While (cond, body) as stmt -> if Expr.eval st cond == 0 then conf else eval env (eval env conf body) stmt
-        | Call (name, args) ->
-                let argNames, localNames, body = env#definition name in
-                let argValues = List.map (Expr.eval st) args in
-                let nSt = fold_left2 (fun s x v -> State.update x v s) (State.enter st (append argNames localNames)) argNames argValues in
-                let nSt, i, o = eval env (nSt, i, o) body in
-                State.leave nSt st, i, o;;
+    let rec eval env ((st, i, o, r) as conf) k =
+        let proceed st i o = let conf = (st, i, o, None) in match k with | Skip -> conf | _ -> eval env conf k Skip in
+        function
+        | Read s -> proceed (State.update s (hd i) st) (tl i) o
+        | Write ex -> let st, i, o, Some r = Expr.eval env conf ex in proceed st i (append o [r])
+        | Assign (var, ex) -> let st, i, o, Some r = Expr.eval env conf ex in proceed (State.update var r st) i o
+        | Seq (s1, s2) -> let (st, i, o, _) = eval env conf s1 s2 in proceed st i o
+        | Skip -> proceed st i o
+        | If (cond, tbrc, fbrc) -> let (st, i, o, Some r) as conf = Expr.eval env conf cond in eval env (st, i, o, None) (if r != 0 then tbrc else fbrc) k
+        | While (cond, body) as stmt ->
+                let (st, i, o, Some r) as conf = Expr.eval env conf cond in
+                if r != 0 then eval env conf body (Seq (stmt, k)) else proceed st i o
+        | Return ex -> Expr.eval env conf ex
+        | Call (name, args) -> let (st, i, o, _) = Expr.eval env conf (Expr.Call (name, args)) in proceed st i o;;
 
     (* Statement parser *)
     ostap (
@@ -171,6 +184,7 @@ module Stmt =
       foreach: "for" ini:parse "," c:!(Expr.parse) "," inc:parse "do" b:parse "od" {Seq (ini, While (c, Seq (b, inc)))};
       read: "read" "(" s:IDENT ")" {Read s};
       write: "write" ex:!(Expr.parent) {Write ex};
+      return: "return" ex:!(Expr.parse)? {Return ex};
       call: name:IDENT "(" args:!(Util.list0)[Expr.parse] ")" {Call (name, args)}
     )
 
@@ -207,7 +221,7 @@ type t = Definition.t list * Stmt.t
 *)
 let eval (defs, body) i =
   let module M = Map.Make (String) in
-  let m          = List.fold_left (fun m ((name, _) as def) -> M.add name def m) M.empty defs in  
+  let m          = List.fold_left (fun m ((name, _) as def) -> M.add name def m) M.empty defs in
   let _, _, o, _ =
     Stmt.eval
       (object
