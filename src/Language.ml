@@ -122,7 +122,8 @@ module Expr =
                 )
                 primary
               );
-      primary: n:IDENT {Var n} | x:DECIMAL {Const x} | parent;
+      primary: n:IDENT {Var n} | x:DECIMAL {Const x} | call | parent;
+      call: name:IDENT "(" args:!(Util.list0)[parse] ")" {Call (name, args)};
       parent: -"(" parse -")"
     )
 
@@ -168,12 +169,12 @@ module Stmt =
                 if r != 0 then eval env conf (Seq (stmt, k)) body else proceed st i o
         | Return None      -> (st, i, o, None)
         | Return (Some ex) -> Expr.eval env conf ex
-        | Call (name, args) -> let (st, i, o, _) = Expr.eval env conf (Expr.Call (name, args)) in proceed st i o;;
+        | Call (name, args) -> let (st, i, o, None) = Expr.eval env conf (Expr.Call (name, args)) in proceed st i o;;
 
     (* Statement parser *)
     ostap (
       parse: !(Util.list0ByWith)[ostap (";")][singleOp][fun x h -> Seq (x, h)][Skip];
-      singleOp: assign | skip | cond | whle | repeat | foreach | read | write | call;
+      singleOp: assign | skip | cond | whle | repeat | foreach | read | write | return | call;
       assign: x:IDENT ":=" ex:!(Expr.parse) {Assign (x, ex)};
       skip: "skip" {Skip};
       cond: "if" c:!(Expr.parse) "then" t:parse f:condElse {If (c, t, f)};
@@ -184,7 +185,7 @@ module Stmt =
       read: "read" "(" s:IDENT ")" {Read s};
       write: "write" ex:!(Expr.parent) {Write ex};
       return: "return" ex:!(Expr.parse)? {Return ex};
-      call: name:IDENT "(" args:!(Util.list0)[Expr.parse] ")" {Call (name, args)}
+      call: c:!(Expr.call) {let Expr.Call (name, args) = c in Call (name, args)}
     )
 
   end
