@@ -86,114 +86,35 @@ open SM
    Take an environment, a stack machine program, and returns a pair --- the updated environment and the list
    of x86 instructions
 *)
-let compile env code =
-  let suffix = function
-  | "<"  -> "l"
-  | "<=" -> "le"
-  | "==" -> "e"
-  | "!=" -> "ne"
-  | ">=" -> "ge"
-  | ">"  -> "g"
-  | _    -> failwith "unknown operator"	
-  in
-  let rec compile' env scode =
-    let on_stack = function S _ -> true | _ -> false in
-    match scode with
+let rec compile env = function
     | [] -> env, []
-    | instr :: scode' ->
-        let env', code' =
-          match instr with
-          | READ ->
-             let s, env' = env#allocate in
-             (env', [Call "Lread"; Mov (eax, s)])               
-          | WRITE ->
-             let s, env' = env#pop in
-             (env', [Push s; Call "Lwrite"; Pop eax])
-  	  | CONST n ->
-             let s, env' = env#allocate in
-	     (env', [Mov (L n, s)])               
-	  | LD x ->
-             let s, env' = (env#global x)#allocate in
-             env',
-	     (match s with
-	      | S _ | M _ -> [Mov (M (env'#loc x), eax); Mov (eax, s)]
-	      | _         -> [Mov (M (env'#loc x), s)]
-	     )	        
-	  | ST x ->
-	     let s, env' = (env#global x)#pop in
-             env',
-             (match s with
-              | S _ | M _ -> [Mov (s, eax); Mov (eax, M (env'#loc x))]
-              | _         -> [Mov (s, M (env'#loc x))]
-	     )
-          | BINOP op ->
-	     let x, y, env' = env#pop2 in
-             env'#push y,
-             (match op with
-	      | "/" | "%" ->
-                 [Mov (y, eax);
-                  Cltd;
-                  IDiv x;
-                  Mov ((match op with "/" -> eax | _ -> edx), y)
-                 ]
-              | "<" | "<=" | "==" | "!=" | ">=" | ">" ->
-                 (match x with
-                  | M _ | S _ ->
-                     [Binop ("^", eax, eax);
-                      Mov   (x, edx);
-                      Binop ("cmp", edx, y);
-                      Set   (suffix op, "%al");
-                      Mov   (eax, y)
-                     ]
-                  | _ ->
-                     [Binop ("^"  , eax, eax);
-                      Binop ("cmp", x, y);
-                      Set   (suffix op, "%al");
-                      Mov   (eax, y)
-                     ]
-                 )
-              | "*" ->
-                 if on_stack x && on_stack y 
-		 then [Mov (y, eax); Binop (op, x, eax); Mov (eax, y)]
-                 else [Binop (op, x, y)]
-	      | "&&" ->
-		 [Mov   (x, eax);
-		  Binop (op, x, eax);
-		  Mov   (L 0, eax);
-		  Set   ("ne", "%al");
-                  
-		  Mov   (y, edx);
-		  Binop (op, y, edx);
-		  Mov   (L 0, edx);
-		  Set   ("ne", "%dl");
-                  
-                  Binop (op, edx, eax);
-		  Set   ("ne", "%al");
-                  
-		  Mov   (eax, y)
-                 ]		   
-	      | "!!" ->
-		 [Mov   (y, eax);
-		  Binop (op, x, eax);
-                  Mov   (L 0, eax);
-		  Set   ("ne", "%al");
-		  Mov   (eax, y)
-                 ]		   
-	      | _   ->
-                 if on_stack x && on_stack y 
-                 then [Mov   (x, eax); Binop (op, eax, y)]
-                 else [Binop (op, x, y)]
-             )
-          | LABEL s     -> env, [Label s]
-	  | JMP   l     -> env, [Jmp l]
-          | CJMP (s, l) ->
-              let x, env = env#pop in
-              env, [Binop ("cmp", L 0, x); CJmp  (s, l)]
-        in
-        let env'', code'' = compile' env' scode' in
-	env'', code' @ code''
-  in
-  compile' env code
+    | inst::rem -> 
+            let env, cInst = match inst with
+            | BINOP name -> let y, x, env = env#pop2 in
+                            let commands = match name with
+                            | "/" -> [Mov (x, eax); Cltd; IDiv y; Mov (eax, x)]
+                            | "%" -> [Mov (x, eax); Cltd; IDiv y; Mov (edx, x)]
+                            | "<" -> [Mov (x, eax); Binop("-", y, eax); Set ("l", "%al"); Binop ("&&", L 1, eax); Mov (eax, x)]
+                            | "<=" -> [Mov (x, eax); Binop("-", y, eax); Set ("le", "%al"); Binop ("&&", L 1, eax); Mov (eax, x)]
+                            | ">" -> [Mov (x, eax); Binop("-", y, eax); Set ("g", "%al"); Binop ("&&", L 1, eax); Mov (eax, x)]
+                            | ">=" -> [Mov (x, eax); Binop("-", y, eax); Set ("ge", "%al"); Binop ("&&", L 1, eax); Mov (eax, x)]
+                            | "==" -> [Mov (x, eax); Binop("-", y, eax); Set ("e", "%al"); Binop ("&&", L 1, eax); Mov (eax, x)]
+                            | "!=" -> [Mov (x, eax); Binop("-", y, eax); Set ("ne", "%al"); Binop ("&&", L 1, eax); Mov (eax, x)]
+                            | "!!" -> [Mov (x, eax); Binop("!!", y, eax); Set ("nz", "%al"); Binop ("&&", L 1, eax); Mov (eax, x)]
+                            | "&&" -> [Mov (y, eax); Binop("&&", eax, eax); Set ("nz", "%al"); Mov (x, edx); Binop ("&&", edx, edx); Set ("nz", "%ah"); Binop ("&&", L 257, eax); Binop ("^", L 257, eax); Set ("z", "%al"); Binop ("&&", L 1, eax); Mov (eax, x)]
+                            | _ -> [Mov (x, eax); Binop (name, y, eax); Mov (eax, x)]
+                            in env#push x, commands
+            | CONST cst -> let x, env = env#allocate in env, [Mov (L cst, x)]
+            | READ -> let x, env = env#allocate in env, [Call "Lread"; Mov (eax, x)]
+            | WRITE -> let x, env = env#pop in env, [Mov (x, eax); Push eax; Call "Lwrite"; Binop ("+", L 4, esp)]
+            | LD name -> let env = env#global name in let x, env = env#allocate in env, [Mov (M (env#loc name), eax); Mov (eax, x)]
+            | ST name -> let x, env = (env#global name)#pop in env, [Mov (x, eax); Mov (eax, M (env#loc name))]
+            | LABEL name -> env, [Label name]
+            | JMP name -> env, [Jmp name]
+            | CJMP (cnd, name) -> let x, env = env#pop in env, [Mov (x, eax); Binop ("&&", eax, eax); CJmp (cnd, name)]
+            in
+            let env, rInst = compile env rem in 
+            env, List.append cInst rInst
 
 (* A set of strings *)           
 module S = Set.Make (String)
