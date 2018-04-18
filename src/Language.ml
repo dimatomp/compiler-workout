@@ -122,7 +122,7 @@ module Expr =
                 )
                 primary
               );
-      primary: n:IDENT {Var n} | x:DECIMAL {Const x} | call | parent;
+      primary: call | n:IDENT {Var n} | x:DECIMAL {Const x} | parent;
       call: name:IDENT "(" args:!(Util.list0)[parse] ")" {Call (name, args)};
       parent: -"(" parse -")"
     )
@@ -161,13 +161,13 @@ module Stmt =
         | Read s -> proceed (State.update s (hd i) st) (tl i) o
         | Write ex -> let st, i, o, Some r = Expr.eval env conf ex in proceed st i (append o [r])
         | Assign (var, ex) -> let st, i, o, Some r = Expr.eval env conf ex in proceed (State.update var r st) i o
-        | Seq (s1, s2) -> let (st, i, o, _) = eval env conf s2 s1 in proceed st i o
+        | Seq (s1, s2) -> eval env conf (match k with | Skip -> s2 | _ -> Seq (s2, k)) s1
         | Skip -> proceed st i o
         | If (cond, tbrc, fbrc) -> let (st, i, o, Some r) as conf = Expr.eval env conf cond in eval env (st, i, o, None) k (if r != 0 then tbrc else fbrc) 
         | While (cond, body) as stmt ->
                 let (st, i, o, Some r) as conf = Expr.eval env conf cond in
                 if r != 0 then eval env conf (Seq (stmt, k)) body else proceed st i o
-        | Return None      -> (st, i, o, None)
+        | Return None -> (st, i, o, None)
         | Return (Some ex) -> Expr.eval env conf ex
         | Call (name, args) -> let (st, i, o, None) = Expr.eval env conf (Expr.Call (name, args)) in proceed st i o;;
 

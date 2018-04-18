@@ -52,9 +52,9 @@ let rec eval env ((cstack, stack, ((st, i, o) as c)) as conf) = function
         | CJMP ("z", name), _           -> let x :: stack = stack in (cstack, stack, c), if x == 0 then env#labeled name else progRem
         | CJMP ("nz", name), _          -> let x :: stack = stack in (cstack, stack, c), if x != 0 then env#labeled name else progRem
         | BEGIN (args, locals), _       ->
-                let st = fold_right2 State.update args stack (State.enter st (append args locals)) in
-                let rec drop n l = if n == 0 then l else drop (n - 1) (tl l) in
-                let stack = drop (length args) stack in
+                let rec split n l = if n == 0 then ([], l) else let pref, suf = split (n - 1) (tl l) in hd l :: pref, suf in
+                let argv, stack = split (length args) stack in
+                let st = fold_right2 State.update (rev args) argv (State.enter st (append args locals)) in
                 (cstack, stack, (st, i, o)), progRem
         | END, (progRem, oSt) :: cstack -> (cstack, stack, (State.leave st oSt, i, o)), progRem
         | END, []                       -> conf, []
