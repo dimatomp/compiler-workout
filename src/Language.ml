@@ -77,7 +77,6 @@ module Expr =
     | "&&" -> if a != 0 && b != 0 then 1 else 0
     | "!!" -> if a != 0 || b != 0 then 1 else 0;;
 
-
     (* Expression evaluator
 
           val eval : env -> config -> t -> config
@@ -156,17 +155,17 @@ module Stmt =
        environment is the same as for expressions
     *)
     let rec eval env ((st, i, o, r) as conf) k =
-        let proceed st i o = let conf = (st, i, o, None) in match k with | Skip -> conf | _ -> eval env conf k Skip in
+        let proceed st i o = let conf = (st, i, o, None) in match k with | Skip -> conf | _ -> eval env conf Skip k in
         function
         | Read s -> proceed (State.update s (hd i) st) (tl i) o
         | Write ex -> let st, i, o, Some r = Expr.eval env conf ex in proceed st i (append o [r])
         | Assign (var, ex) -> let st, i, o, Some r = Expr.eval env conf ex in proceed (State.update var r st) i o
-        | Seq (s1, s2) -> let (st, i, o, _) = eval env conf s1 s2 in proceed st i o
+        | Seq (s1, s2) -> let (st, i, o, _) = eval env conf s2 s1 in proceed st i o
         | Skip -> proceed st i o
-        | If (cond, tbrc, fbrc) -> let (st, i, o, Some r) as conf = Expr.eval env conf cond in eval env (st, i, o, None) (if r != 0 then tbrc else fbrc) k
+        | If (cond, tbrc, fbrc) -> let (st, i, o, Some r) as conf = Expr.eval env conf cond in eval env (st, i, o, None) k (if r != 0 then tbrc else fbrc) 
         | While (cond, body) as stmt ->
                 let (st, i, o, Some r) as conf = Expr.eval env conf cond in
-                if r != 0 then eval env conf body (Seq (stmt, k)) else proceed st i o
+                if r != 0 then eval env conf (Seq (stmt, k)) body else proceed st i o
         | Return None      -> (st, i, o, None)
         | Return (Some ex) -> Expr.eval env conf ex
         | Call (name, args) -> let (st, i, o, _) = Expr.eval env conf (Expr.Call (name, args)) in proceed st i o;;
