@@ -32,25 +32,33 @@ type config = (prg * State.t) list * int list * Stmt.config
    Takes an environment, a configuration and a program, and returns a configuration as a result. The
    environment is used to locate a label to jump to (via method env#labeled <label_name>)
 *)                         
-let eval env ((cstack, stack, ((st, i, o) as c)) as conf) = function
+let rec eval env ((cstack, stack, ((st, i, o) as c)) as conf) = function
     | [] -> conf
     | cInst :: progRem -> 
-        let cCfg, cont = match cInst with
-        | BINOP op          -> 
-                let x :: y :: rem = stack in 
+        let cCfg, cont = match (cInst, cstack) with
+        | BINOP op, _                   -> 
+                let x :: y :: stack = stack in 
                 let calcResult = Expr.eval st (Expr.Binop (op, Expr.Const y, Expr.Const x)) in
-                (calcResult :: rem, c), progRem
-        | CONST v           -> (v :: stack, c), progRem
-        | READ              -> 
+                (cstack, calcResult :: stack, c), progRem
+        | CONST v, _                    -> (cstack, v :: stack, c), progRem
+        | READ, _                       -> 
                 let r :: cInp = i in 
-                (r :: stack, (st, cInp, o)), progRem
-        | WRITE             -> let x :: rem = stack in (rem, (st, i, append o [x])), progRem
-        | LD name           -> (st name :: stack, c), progRem 
-        | ST name           -> let x :: rem = stack in (rem, (Expr.update name x st, i, o)), progRem
-        | LABEL name        -> conf, progRem
-        | JMP name          -> conf, env#labeled name
-        | CJMP ("z", name)  -> let x :: rem = stack in (rem, c), if x == 0 then env#labeled name else progRem
-        | CJMP ("nz", name) -> let x :: rem = stack in (rem, c), if x != 0 then env#labeled name else progRem
+                (cstack, r :: stack, (st, cInp, o)), progRem
+        | WRITE, _                      -> let x :: stack = stack in (cstack, stack, (st, i, append o [x])), progRem
+        | LD name, _                    -> (cstack, State.eval st name :: stack, c), progRem 
+        | ST name, _                    -> let x :: stack = stack in (cstack, stack, (State.update name x st, i, o)), progRem
+        | LABEL name, _                 -> conf, progRem
+        | JMP name, _                   -> conf, env#labeled name
+        | CJMP ("z", name), _           -> let x :: stack = stack in (cstack, stack, c), if x == 0 then env#labeled name else progRem
+        | CJMP ("nz", name), _          -> let x :: stack = stack in (cstack, stack, c), if x != 0 then env#labeled name else progRem
+        | BEGIN (args, locals), _       -> 
+                let st = fold_right2 State.update args stack (State.enter st (append args locals)) in
+                let rec drop n l = if n == 0 then l else drop (n - 1) (tl l) in
+                let stack = drop (length args) stack in
+                (cstack, stack, (st, i, o)), progRem
+        | END, (progRem, oSt) :: cstack -> (cstack, stack, (State.leave st oSt, i, o)), progRem
+        | END, []                       -> conf, []
+        | CALL name, _                  -> ((progRem, st) :: cstack, stack, c), env#labeled name
         in 
         eval env cCfg cont
 
@@ -77,13 +85,13 @@ let run p i =
    Takes a program in the source language and returns an equivalent program for the
    stack machine
 *)
-let compile (defs, p) = failwith "Not implemented"
+let compile (defs, stmt) = 
     let rec compExpr = function
         | Expr.Const x -> [CONST x]
         | Expr.Var s -> [LD s]
         | Expr.Binop (op, f, s) -> append (compExpr f) (append (compExpr s) [BINOP op])
     in
-    let getLabel cNum = "l" ^ string_of_int cNum, cNum + 1 in
+    let getLabel cNum = "__l" ^ string_of_int cNum, cNum + 1 in
     let rec compileImpl lState = function
         | Stmt.Read x -> [READ; ST x], lState
         | Stmt.Write t -> append (compExpr t) [WRITE], lState
@@ -106,10 +114,16 @@ let compile (defs, p) = failwith "Not implemented"
                 let sLabel, lState = getLabel lState in
                 let fLabel, lState = getLabel lState in
                 append (LABEL sLabel :: condition) (append (CJMP ("z", fLabel) :: bodyCode) [JMP sLabel; LABEL fLabel]), lState
+        | Stmt.Repeat (body, cond) -> compileImpl lState (Stmt.Seq (body, Stmt.While (cond, body)))
         | Stmt.For (init, cond, incr, body) -> 
                 let initCode, lState = compileImpl lState init in
                 let bodyCode, lState = compileImpl lState (Stmt.While (cond, Stmt.Seq (body, incr))) in
                 append initCode bodyCode, lState
+        | Stmt.Call (name, args) -> append (concat (rev_map compExpr args)) [CALL name], lState
     in
-    let (result, _) = compileImpl 0 stmt in
-    result
+    let result, lState = compileImpl 0 stmt in
+    let compileFunc (result, lState) (name, (args, locals, body)) =
+        let (compDef, lState) = compileImpl lState body in
+        append result (append (LABEL name :: BEGIN (args, locals) :: compDef) [END]), lState
+    in
+    fold_left compileFunc (append result [END], lState) defs 
