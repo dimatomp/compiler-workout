@@ -144,7 +144,7 @@ module S = Set.Make (String)
 
 (* Environment implementation *)
 let make_assoc l = 
-    let rec revInit n = if n < 0 then [] else n :: revInit (n - 1) in
+    let rec revInit n = if n <= 0 then [] else (n - 1) :: revInit (n - 1) in
     List.combine l (List.rev (revInit (List.length l)))
                      
 class env =
