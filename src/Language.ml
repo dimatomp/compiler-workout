@@ -95,13 +95,9 @@ module Expr =
     *)
     @type t =
     (* integer constant   *) | Const  of int
-    (* array              *) | Array  of t list
     (* string             *) | String of string
-    (* S-expressions      *) | Sexp   of string * t list
     (* variable           *) | Var    of string
     (* binary operator    *) | Binop  of string * t * t
-    (* element extraction *) | Elem   of t * t
-    (* length             *) | Length of t 
     (* function call      *) | Call   of string * t list with show
 
     (* Available binary operators:
@@ -143,17 +139,15 @@ module Expr =
        which takes an environment (of the same type), a name of the function, a list of actual parameters and a configuration,
        an returns a pair: the return value for the call and the resulting configuration
     *)                                                       
-    let rec eval env ((st, i, o, r) as conf) expr = function
-        | Const r -> st, i, o, Some r
+    let rec eval env ((st, i, o, r) as conf) = function
+        | Const r -> st, i, o, Some (Value.of_int r)
+        | String s -> st, i, o, Some (Value.of_string s)
         | Var s -> st, i, o, Some (State.eval st s)
         | Binop (op, a, b) ->
                 let ( _, _, _, Some a) as conf = eval env conf a in
                 let (st, i, o, Some b) as conf = eval env conf b in
-                st, i, o, Some (evalBinop op a b)
-        | Call (name, args) ->
-                let evalArg (argv, conf) argEx = let (_, _, _, Some r) as conf = eval env conf argEx in r :: argv, conf in
-                let argv, conf = fold_left evalArg ([], conf) args in
-                env#definition env name (rev argv) conf
+                st, i, o, Some (Value.of_int @@ evalBinop op (Value.to_int a) (Value.to_int b))
+        | Call (name, args) -> let st, i, o, argv = eval_list env conf args in env#definition env name argv conf
     and eval_list env conf xs =
       let vs, (st, i, o, _) =
         List.fold_left
@@ -185,7 +179,10 @@ module Expr =
                 )
                 primary
               );
-      primary: call | n:IDENT {Var n} | x:DECIMAL {Const x} | parent;
+      primary: call | n:IDENT {Var n} | x:DECIMAL {Const x} | s:STRING {String s} | len | elem | arr | parent;
+      len: x:primary "." "length" {Call ("$length", [x])};
+      elem: x:primary "[" idx:parse "]" {Call ("$elem", [x; idx])};
+      arr: "[" l:!(Util.list0)[parse] "]" {Call ("$array", l)};
       call: name:IDENT "(" args:!(Util.list0)[parse] ")" {Call (name, args)};
       parent: -"(" parse -")"
     )
@@ -228,14 +225,16 @@ module Stmt =
     let rec eval env ((st, i, o, r) as conf) k  =
         let proceed st i o = let conf = (st, i, o, None) in match k with | Skip -> conf | _ -> eval env conf Skip k in
         function
-        | Write ex -> 
-        | Assign (var, ex) -> let st, i, o, Some r = Expr.eval env conf ex in proceed (State.update var r st) i o
+        | Assign (var, indices, ex) ->
+                let st, i, o, idxs = Expr.eval_list env conf indices in
+                let st, i, o, Some v = Expr.eval env conf ex in
+                proceed (update st var v idxs) i o
         | Seq (s1, s2) -> eval env conf (match k with | Skip -> s2 | _ -> Seq (s2, k)) s1
         | Skip -> proceed st i o
-        | If (cond, tbrc, fbrc) -> let (st, i, o, Some r) as conf = Expr.eval env conf cond in eval env (st, i, o, None) k (if r != 0 then tbrc else fbrc) 
+        | If (cond, tbrc, fbrc) -> let (st, i, o, Some r) as conf = Expr.eval env conf cond in eval env (st, i, o, None) k (if Value.to_int r != 0 then tbrc else fbrc)
         | While (cond, body) as stmt ->
                 let (st, i, o, Some r) as conf = Expr.eval env conf cond in
-                if r != 0 then eval env conf (Seq (stmt, k)) body else proceed st i o
+                if Value.to_int r != 0 then eval env conf (Seq (stmt, k)) body else proceed st i o
         | Return None -> (st, i, o, None)
         | Return (Some ex) -> Expr.eval env conf ex
         | Call (name, args) -> let (st, i, o, None) = Expr.eval env conf (Expr.Call (name, args)) in proceed st i o;;
@@ -243,8 +242,8 @@ module Stmt =
     (* Statement parser *)
     ostap (
       parse: !(Util.list0ByWith)[ostap (";")][singleOp][fun x h -> Seq (x, h)][Skip];
-      singleOp: assign | skip | cond | whle | repeat | foreach | read | write | return | call;
-      assign: x:IDENT ":=" ex:!(Expr.parse) {Assign (x, ex)};
+      singleOp: assign | skip | cond | whle | repeat | foreach | return | call;
+      assign: x:IDENT idx:(-"[" !(Expr.parse) -"]")* ":=" ex:!(Expr.parse) {Assign (x, idx, ex)};
       skip: "skip" {Skip};
       cond: "if" c:!(Expr.parse) "then" t:parse f:condElse {If (c, t, f)};
       condElse: "elif" c:!(Expr.parse) "then" t:parse f:condElse {If (c, t, f)} | -"else" parse -"fi" | "fi" {Skip};
