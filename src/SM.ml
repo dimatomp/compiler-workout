@@ -44,7 +44,7 @@ let rec eval env ((cstack, stack, ((st, i, o) as c)) as conf) = function
         | READ, _                         ->
                 let r :: cInp = i in
                 (cstack, r :: stack, (st, cInp, o)), progRem
-        | WRITE, _                        -> let x :: stack = stack in (cstack, stack, (st, i, append o [x])), progRem
+        | WRITE, _                        -> let x :: stack = stack in (cstack, stack, (st, i, o @ [x])), progRem
         | LD name, _                      -> (cstack, State.eval st name :: stack, c), progRem
         | ST name, _                      -> let x :: stack = stack in (cstack, stack, (State.update name x st, i, o)), progRem
         | LABEL name, _                   -> conf, progRem
@@ -54,7 +54,7 @@ let rec eval env ((cstack, stack, ((st, i, o) as c)) as conf) = function
         | BEGIN (_, args, locals), _      ->
                 let rec split n l = if n == 0 then ([], l) else let pref, suf = split (n - 1) (tl l) in hd l :: pref, suf in
                 let argv, stack = split (length args) stack in
-                let st = fold_right2 State.update (rev args) argv (State.enter st (append args locals)) in
+                let st = fold_right2 State.update (rev args) argv (State.enter st (args @ locals)) in
                 (cstack, stack, (st, i, o)), progRem
         | RET _, (progRem, oSt) :: cstack -> (cstack, stack, (State.leave st oSt, i, o)), progRem
         | RET _, []                       -> conf, []
@@ -86,22 +86,22 @@ let run p i =
    stack machine
 *)
 let compile (defs, stmt) =
-    let genCall compExpr name args func = append (concat (map compExpr args)) [CALL (name, length args, func)] in
+    let genCall compExpr name args func = (concat (map compExpr args)) @ [CALL (name, length args, func)] in
     let rec compExpr = function
         | Expr.Const x -> [CONST x]
         | Expr.Var s -> [LD s]
-        | Expr.Binop (op, f, s) -> append (compExpr f) (append (compExpr s) [BINOP op])
+        | Expr.Binop (op, f, s) -> (compExpr f) @ (compExpr s) @ [BINOP op]
         | Expr.Call (name, args) -> genCall compExpr name args true
     in
     let getLabel cNum = "__l" ^ string_of_int cNum, cNum + 1 in
     let rec compileImpl lState = function
         | Stmt.Read x -> [READ; ST x], lState
-        | Stmt.Write t -> append (compExpr t) [WRITE], lState
-        | Stmt.Assign (name, ex) -> append (compExpr ex) [ST name], lState
+        | Stmt.Write t -> (compExpr t) @ [WRITE], lState
+        | Stmt.Assign (name, ex) -> (compExpr ex) @ [ST name], lState
         | Stmt.Seq (s1, s2) ->
                 let code1, lState = compileImpl lState s1 in
                 let code2, lState = compileImpl lState s2 in
-                append code1 code2, lState
+                code1 @ code2, lState
         | Stmt.Skip -> ([], lState)
         | Stmt.If (cond, tBrc, fBrc) ->
                 let condition = compExpr cond in
@@ -109,21 +109,21 @@ let compile (defs, stmt) =
                 let falseBranch, lState = compileImpl lState fBrc in
                 let fLabel, lState = getLabel lState in
                 let sLabel, lState = getLabel lState in
-                append condition (append (CJMP ("z", fLabel) :: trueBranch) (append (JMP sLabel :: LABEL fLabel :: falseBranch) [LABEL sLabel])), lState
+                condition @ (CJMP ("z", fLabel) :: trueBranch) @ (JMP sLabel :: LABEL fLabel :: falseBranch) @ [LABEL sLabel], lState
         | Stmt.While (cond, body) ->
                 let condition = compExpr cond in
                 let bodyCode, lState = compileImpl lState body in
                 let sLabel, lState = getLabel lState in
                 let fLabel, lState = getLabel lState in
-                append (LABEL sLabel :: condition) (append (CJMP ("z", fLabel) :: bodyCode) [JMP sLabel; LABEL fLabel]), lState
+                (LABEL sLabel :: condition) @ (CJMP ("z", fLabel) :: bodyCode) @ [JMP sLabel; LABEL fLabel], lState
         | Stmt.Return None -> [RET false], lState
-        | Stmt.Return (Some expr) -> append (compExpr expr) [RET true], lState
+        | Stmt.Return (Some expr) -> (compExpr expr) @ [RET true], lState
         | Stmt.Call (name, args) -> genCall compExpr name args false, lState
     in
     let result, lState = compileImpl 0 stmt in
     let compileFunc (result, lState) (name, (args, locals, body)) =
         let (compDef, lState) = compileImpl lState body in
-        append result (append (LABEL name :: BEGIN (name, args, locals) :: compDef) [RET false]), lState
+        result @ (LABEL name :: BEGIN (name, args, locals) :: compDef) @ [RET false], lState
     in
-    let result, lState = fold_left compileFunc (append result [RET false], lState) defs in
+    let result, lState = fold_left compileFunc (result @ [RET false], lState) defs in
     result

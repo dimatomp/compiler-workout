@@ -158,7 +158,7 @@ module Stmt =
         let proceed st i o = let conf = (st, i, o, None) in match k with | Skip -> conf | _ -> eval env conf Skip k in
         function
         | Read s -> proceed (State.update s (hd i) st) (tl i) o
-        | Write ex -> let st, i, o, Some r = Expr.eval env conf ex in proceed st i (append o [r])
+        | Write ex -> let st, i, o, Some r = Expr.eval env conf ex in proceed st i (o @ [r])
         | Assign (var, ex) -> let st, i, o, Some r = Expr.eval env conf ex in proceed (State.update var r st) i o
         | Seq (s1, s2) -> eval env conf (match k with | Skip -> s2 | _ -> Seq (s2, k)) s1
         | Skip -> proceed st i o
