@@ -14,7 +14,6 @@ open List
 (* unconditional jump              *) | JMP   of string
 (* conditional jump                *) | CJMP  of string * string
 (* begins procedure definition     *) | BEGIN of string * string list * string list
-(* end procedure definition        *) | END
 (* calls a function/procedure      *) | CALL  of string * int * bool
 (* returns from a function         *) | RET   of bool with show
                                                    
@@ -37,29 +36,29 @@ let rec eval env ((cstack, stack, ((st, i, o) as c)) as conf) = function
     | [] -> conf
     | cInst :: progRem ->
         let cCfg, cont = match (cInst, cstack) with
-        | BINOP op, _                   ->
+        | BINOP op, _                     ->
                 let x :: y :: stack = stack in
                 let calcResult = Expr.evalBinop op y x in
                 (cstack, calcResult :: stack, c), progRem
-        | CONST v, _                    -> (cstack, v :: stack, c), progRem
-        | READ, _                       ->
+        | CONST v, _                      -> (cstack, v :: stack, c), progRem
+        | READ, _                         ->
                 let r :: cInp = i in
                 (cstack, r :: stack, (st, cInp, o)), progRem
-        | WRITE, _                      -> let x :: stack = stack in (cstack, stack, (st, i, append o [x])), progRem
-        | LD name, _                    -> (cstack, State.eval st name :: stack, c), progRem
-        | ST name, _                    -> let x :: stack = stack in (cstack, stack, (State.update name x st, i, o)), progRem
-        | LABEL name, _                 -> conf, progRem
-        | JMP name, _                   -> conf, env#labeled name
-        | CJMP ("z", name), _           -> let x :: stack = stack in (cstack, stack, c), if x == 0 then env#labeled name else progRem
-        | CJMP ("nz", name), _          -> let x :: stack = stack in (cstack, stack, c), if x != 0 then env#labeled name else progRem
-        | BEGIN (args, locals), _       ->
+        | WRITE, _                        -> let x :: stack = stack in (cstack, stack, (st, i, append o [x])), progRem
+        | LD name, _                      -> (cstack, State.eval st name :: stack, c), progRem
+        | ST name, _                      -> let x :: stack = stack in (cstack, stack, (State.update name x st, i, o)), progRem
+        | LABEL name, _                   -> conf, progRem
+        | JMP name, _                     -> conf, env#labeled name
+        | CJMP ("z", name), _             -> let x :: stack = stack in (cstack, stack, c), if x == 0 then env#labeled name else progRem
+        | CJMP ("nz", name), _            -> let x :: stack = stack in (cstack, stack, c), if x != 0 then env#labeled name else progRem
+        | BEGIN (_, args, locals), _      ->
                 let rec split n l = if n == 0 then ([], l) else let pref, suf = split (n - 1) (tl l) in hd l :: pref, suf in
                 let argv, stack = split (length args) stack in
                 let st = fold_right2 State.update (rev args) argv (State.enter st (append args locals)) in
                 (cstack, stack, (st, i, o)), progRem
-        | END, (progRem, oSt) :: cstack -> (cstack, stack, (State.leave st oSt, i, o)), progRem
-        | END, []                       -> conf, []
-        | CALL name, _                  -> ((progRem, st) :: cstack, stack, c), env#labeled name
+        | RET _, (progRem, oSt) :: cstack -> (cstack, stack, (State.leave st oSt, i, o)), progRem
+        | RET _, []                       -> conf, []
+        | CALL (name, _, _), _            -> ((progRem, st) :: cstack, stack, c), env#labeled name
         in
         eval env cCfg cont
 
@@ -87,11 +86,12 @@ let run p i =
    stack machine
 *)
 let compile (defs, stmt) =
+    let genCall compExpr name args func = append (concat (map compExpr args)) [CALL (name, length args, func)] in
     let rec compExpr = function
         | Expr.Const x -> [CONST x]
         | Expr.Var s -> [LD s]
         | Expr.Binop (op, f, s) -> append (compExpr f) (append (compExpr s) [BINOP op])
-        | Expr.Call (name, args) -> append (concat (map compExpr args)) [CALL name]
+        | Expr.Call (name, args) -> genCall compExpr name args true
     in
     let getLabel cNum = "__l" ^ string_of_int cNum, cNum + 1 in
     let rec compileImpl lState = function
@@ -116,14 +116,14 @@ let compile (defs, stmt) =
                 let sLabel, lState = getLabel lState in
                 let fLabel, lState = getLabel lState in
                 append (LABEL sLabel :: condition) (append (CJMP ("z", fLabel) :: bodyCode) [JMP sLabel; LABEL fLabel]), lState
-        | Stmt.Return None -> [END], lState
-        | Stmt.Return (Some expr) -> append (compExpr expr) [END], lState
-        | Stmt.Call (name, args) -> compExpr (Expr.Call (name, args)), lState
+        | Stmt.Return None -> [RET false], lState
+        | Stmt.Return (Some expr) -> append (compExpr expr) [RET true], lState
+        | Stmt.Call (name, args) -> genCall compExpr name args false, lState
     in
     let result, lState = compileImpl 0 stmt in
     let compileFunc (result, lState) (name, (args, locals, body)) =
         let (compDef, lState) = compileImpl lState body in
-        append result (append (LABEL name :: BEGIN (args, locals) :: compDef) [END]), lState
+        append result (append (LABEL name :: BEGIN (name, args, locals) :: compDef) [RET false]), lState
     in
-    let result, lState = fold_left compileFunc (append result [END], lState) defs in
+    let result, lState = fold_left compileFunc (append result [RET false], lState) defs in
     result

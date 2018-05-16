@@ -100,8 +100,7 @@ module Expr =
         | Call (name, args) ->
                 let evalArg (argv, conf) argEx = let (_, _, _, Some r) as conf = eval env conf argEx in r :: argv, conf in
                 let argv, conf = fold_left evalArg ([], conf) args in
-                env#definition env name (rev argv) conf
-        | v -> failwith "invalid syntax";;
+                env#definition env name (rev argv) conf;;
 
     (* Expression parser. You can use the following terminals:
 
