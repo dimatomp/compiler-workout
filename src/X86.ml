@@ -129,10 +129,10 @@ let rec compile env = function
                     in
                     let args, env = argStrip env arglen in
                     let liveRegs = env#live_registers in
-                    let alignEspAndPushLiveRegs = Mov (ebp, esp) :: Binop ("-", esp, L (4 * env#allocated)) :: map (fun x -> Push x) liveRegs in
+                    let alignEspAndPushLiveRegs = Mov (ebp, esp) :: Binop ("-", L (4 * env#allocated), esp) :: map (fun x -> Push x) liveRegs in
                     let pushArgs = concat (map (fun x -> [Mov (x, eax); Push eax]) args) in
                     let callFunction, env = if func then let x, env = env#allocate in [Call name; Mov (eax, x)], env else [Call name], env in
-                    let removeArgsAndPopLiveRegs = (Binop ("+", esp, L (4 * arglen)) :: rev_map (fun x -> Pop x) liveRegs) in
+                    let removeArgsAndPopLiveRegs = (Binop ("+", L (4 * arglen), esp) :: rev_map (fun x -> Pop x) liveRegs) in
                     env, (alignEspAndPushLiveRegs @ pushArgs @ callFunction @ removeArgsAndPopLiveRegs)
             in
             let env, rInst = compile env rem in 
