@@ -82,6 +82,7 @@ let show instr =
 
 (* Opening stack machine to use instructions without fully qualified names *)
 open SM
+open List
 
 (* Symbolic stack machine evaluator
 
@@ -95,15 +96,17 @@ let rec compile env = function
     | inst::rem -> 
             let env, cInst = match inst with
             | BINOP name -> let y, x, env = env#pop2 in
+                            let comparison c = [Mov (x, eax); Binop("-", y, eax); Set (c, "%al"); Binop ("&&", L 1, eax); Mov (eax, x)] in
+                            let divmod reg = [Mov (x, eax); Cltd; IDiv y; Mov (reg, x)] in
                             let commands = match name with
-                            | "/" -> [Mov (x, eax); Cltd; IDiv y; Mov (eax, x)]
-                            | "%" -> [Mov (x, eax); Cltd; IDiv y; Mov (edx, x)]
-                            | "<" -> [Mov (x, eax); Binop("-", y, eax); Set ("l", "%al"); Binop ("&&", L 1, eax); Mov (eax, x)]
-                            | "<=" -> [Mov (x, eax); Binop("-", y, eax); Set ("le", "%al"); Binop ("&&", L 1, eax); Mov (eax, x)]
-                            | ">" -> [Mov (x, eax); Binop("-", y, eax); Set ("g", "%al"); Binop ("&&", L 1, eax); Mov (eax, x)]
-                            | ">=" -> [Mov (x, eax); Binop("-", y, eax); Set ("ge", "%al"); Binop ("&&", L 1, eax); Mov (eax, x)]
-                            | "==" -> [Mov (x, eax); Binop("-", y, eax); Set ("e", "%al"); Binop ("&&", L 1, eax); Mov (eax, x)]
-                            | "!=" -> [Mov (x, eax); Binop("-", y, eax); Set ("ne", "%al"); Binop ("&&", L 1, eax); Mov (eax, x)]
+                            | "/" -> divmod eax
+                            | "%" -> divmod edx
+                            | "<" -> comparison "l"
+                            | "<=" -> comparison "le"
+                            | ">" -> comparison "g"
+                            | ">=" -> comparison "ge"
+                            | "==" -> comparison "e"
+                            | "!=" -> comparison "ne"
                             | "!!" -> [Mov (x, eax); Binop("!!", y, eax); Set ("nz", "%al"); Binop ("&&", L 1, eax); Mov (eax, x)]
                             | "&&" -> [Mov (y, eax); Binop("&&", eax, eax); Set ("nz", "%al"); Mov (x, edx); Binop ("&&", edx, edx); Set ("nz", "%ah"); Binop ("&&", L 257, eax); Binop ("^", L 257, eax); Set ("z", "%al"); Binop ("&&", L 1, eax); Mov (eax, x)]
                             | _ -> [Mov (x, eax); Binop (name, y, eax); Mov (eax, x)]
@@ -111,14 +114,29 @@ let rec compile env = function
             | CONST cst -> let x, env = env#allocate in env, [Mov (L cst, x)]
             | READ -> let x, env = env#allocate in env, [Call "Lread"; Mov (eax, x)]
             | WRITE -> let x, env = env#pop in env, [Mov (x, eax); Push eax; Call "Lwrite"; Binop ("+", L 4, esp)]
-            | LD name -> let env = env#global name in let x, env = env#allocate in env, [Mov (M (env#loc name), eax); Mov (eax, x)]
-            | ST name -> let x, env = (env#global name)#pop in env, [Mov (x, eax); Mov (eax, M (env#loc name))]
+            | LD name -> let env = env#global name in let x, env = env#allocate in env, [Mov (env#loc name, eax); Mov (eax, x)]
+            | ST name -> let x, env = (env#global name)#pop in env, [Mov (x, eax); Mov (eax, env#loc name)]
             | LABEL name -> env, [Label name]
             | JMP name -> env, [Jmp name]
             | CJMP (cnd, name) -> let x, env = env#pop in env, [Mov (x, eax); Binop ("&&", eax, eax); CJmp (cnd, name)]
+            | BEGIN (name, args, locals) -> env#enter name args locals, [Push ebp; Mov (esp, ebp)]
+            | RET true -> let x, env = env#pop in env, [Mov (x, eax); Pop ebp; Ret]
+            | RET false -> env, [Pop ebp; Ret]
+            | CALL (name, arglen, func) -> 
+                    let rec argStrip env = function
+                        | 0 -> [], env
+                        | n -> let x, env = env#pop in let l, env = argStrip env (n - 1) in x :: l, env
+                    in
+                    let args, env = argStrip env arglen in
+                    let liveRegs = env#live_registers in
+                    let alignEspAndPushLiveRegs = Mov (ebp, esp) :: Binop ("-", esp, L (4 * env#allocated)) :: map (fun x -> Push x) liveRegs in
+                    let pushArgs = concat (map (fun x -> [Mov (x, eax); Push eax]) args) in
+                    let callFunction, env = if func then let x, env = env#allocate in [Call name; Mov (eax, x)], env else [Call name], env in
+                    let removeArgsAndPopLiveRegs = (Binop ("+", esp, L (4 * arglen)) :: rev_map (fun x -> Pop x) liveRegs) in
+                    env, (alignEspAndPushLiveRegs @ pushArgs @ callFunction @ removeArgsAndPopLiveRegs)
             in
             let env, rInst = compile env rem in 
-            env, List.append cInst rInst
+            env, cInst @ rInst
 
 (* A set of strings *)           
 module S = Set.Make (String)
