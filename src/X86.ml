@@ -82,6 +82,7 @@ let show instr =
 
 (* Opening stack machine to use instructions without fully qualified names *)
 open SM
+open List
 
 (* Symbolic stack machine evaluator
 
@@ -90,24 +91,61 @@ open SM
    Take an environment, a stack machine program, and returns a pair --- the updated environment and the list
    of x86 instructions
 *)
-let compile env code =
-  let suffix = function
-  | "<"  -> "l"
-  | "<=" -> "le"
-  | "==" -> "e"
-  | "!=" -> "ne"
-  | ">=" -> "ge"
-  | ">"  -> "g"
-  | _    -> failwith "unknown operator"	
-  in
-  let rec compile' env scode = failwith "Not implemented" in
-  compile' env code
+let rec compile env = function
+    | [] -> env, []
+    | inst::rem -> 
+            let env, cInst = match inst with
+            | BINOP name -> let y, x, env = env#pop2 in
+                            let comparison c = [Mov (x, eax); Binop("-", y, eax); Set (c, "%al"); Binop ("&&", L 1, eax); Mov (eax, x)] in
+                            let divmod reg = [Mov (x, eax); Cltd; IDiv y; Mov (reg, x)] in
+                            let commands = match name with
+                            | "/" -> divmod eax
+                            | "%" -> divmod edx
+                            | "<" -> comparison "l"
+                            | "<=" -> comparison "le"
+                            | ">" -> comparison "g"
+                            | ">=" -> comparison "ge"
+                            | "==" -> comparison "e"
+                            | "!=" -> comparison "ne"
+                            | "!!" -> [Mov (x, eax); Binop("!!", y, eax); Set ("nz", "%al"); Binop ("&&", L 1, eax); Mov (eax, x)]
+                            | "&&" -> [Mov (y, eax); Binop("&&", eax, eax); Set ("nz", "%al"); Mov (x, edx); Binop ("&&", edx, edx); Set ("nz", "%ah"); Binop ("&&", L 257, eax); Binop ("^", L 257, eax); Set ("z", "%al"); Binop ("&&", L 1, eax); Mov (eax, x)]
+                            | _ -> [Mov (x, eax); Binop (name, y, eax); Mov (eax, x)]
+                            in env#push x, commands
+            | CONST cst -> let x, env = env#allocate in env, [Mov (L cst, x)]
+            | READ -> let x, env = env#allocate in env, [Call "Lread"; Mov (eax, x)]
+            | WRITE -> let x, env = env#pop in env, [Mov (x, eax); Push eax; Call "Lwrite"; Binop ("+", L 4, esp)]
+            | LD name -> let env = env#global name in let x, env = env#allocate in env, [Mov (env#loc name, eax); Mov (eax, x)]
+            | ST name -> let x, env = (env#global name)#pop in env, [Mov (x, eax); Mov (eax, env#loc name)]
+            | LABEL name -> env, [Label name]
+            | JMP name -> env, [Jmp name]
+            | CJMP (cnd, name) -> let x, env = env#pop in env, [Mov (x, eax); Binop ("&&", eax, eax); CJmp (cnd, name)]
+            | BEGIN (name, args, locals) -> env#enter name args locals, [Push ebp; Mov (esp, ebp)]
+            | RET true -> let x, env = env#pop in env, [Mov (x, eax); Pop ebp; Ret]
+            | RET false -> env, [Pop ebp; Ret]
+            | CALL (name, arglen, func) -> 
+                    let rec argStrip env = function
+                        | 0 -> [], env
+                        | n -> let x, env = env#pop in let l, env = argStrip env (n - 1) in x :: l, env
+                    in
+                    let args, env = argStrip env arglen in
+                    let liveRegs = env#live_registers in
+                    let alignEspAndPushLiveRegs = Binop ("-", L (4 * env#allocated), esp) :: map (fun x -> Push x) liveRegs in
+                    let pushArgs = concat (map (fun x -> [Mov (x, eax); Push eax]) args) in
+                    let callFunction, env = if func then let x, env = env#allocate in [Call name; Mov (eax, x)], env else [Call name], env in
+                    let removeArgsAndPopLiveRegs = (Binop ("+", L (4 * arglen), esp) :: rev_map (fun x -> Pop x) liveRegs) in
+                    let restoreEsp = [Mov (ebp, esp)] in
+                    env, (alignEspAndPushLiveRegs @ pushArgs @ callFunction @ removeArgsAndPopLiveRegs @ restoreEsp)
+            in
+            let env, rInst = compile env rem in 
+            env, cInst @ rInst
 
 (* A set of strings *)           
 module S = Set.Make (String)
 
 (* Environment implementation *)
-let make_assoc l = List.combine l (List.init (List.length l) (fun x -> x))
+let make_assoc l = 
+    let rec revInit n = if n < 0 then [] else n :: revInit (n - 1) in
+    List.combine l (List.rev (revInit (List.length l)))
                      
 class env =
   object (self)
