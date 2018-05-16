@@ -43,24 +43,25 @@ let split n l =
 let rec eval env ((cstack, stack, ((st, i, o) as c)) as conf) = function
     | [] -> conf
     | cInst :: progRem ->
+        let rec split n l = if n == 0 then ([], l) else let pref, suf = split (n - 1) (tl l) in hd l :: pref, suf in
         let cCfg, cont = match (cInst, cstack) with
         | BINOP op, _                     ->
                 let x :: y :: stack = stack in
-                let calcResult = Expr.evalBinop op y x in
+                let calcResult = Value.of_int @@ Expr.evalBinop op (Value.to_int y) (Value.to_int x) in
                 (cstack, calcResult :: stack, c), progRem
-        | CONST v, _                      -> (cstack, v :: stack, c), progRem
-        | READ, _                         ->
-                let r :: cInp = i in
-                (cstack, r :: stack, (st, cInp, o)), progRem
-        | WRITE, _                        -> let x :: stack = stack in (cstack, stack, (st, i, o @ [x])), progRem
+        | CONST v, _                      -> (cstack, Value.of_int v :: stack, c), progRem
+        | STRING v, _                     -> (cstack, Value.of_string v :: stack, c), progRem
         | LD name, _                      -> (cstack, State.eval st name :: stack, c), progRem
         | ST name, _                      -> let x :: stack = stack in (cstack, stack, (State.update name x st, i, o)), progRem
+        | STA (name, indices), _          ->
+                let x :: stack = stack in
+                let indices, stack = split indices stack in
+                (cstack, stack, (Stmt.update st name x (rev indices), i, o)), progRem
         | LABEL name, _                   -> conf, progRem
         | JMP name, _                     -> conf, env#labeled name
-        | CJMP ("z", name), _             -> let x :: stack = stack in (cstack, stack, c), if x == 0 then env#labeled name else progRem
-        | CJMP ("nz", name), _            -> let x :: stack = stack in (cstack, stack, c), if x != 0 then env#labeled name else progRem
+        | CJMP ("z", name), _             -> let x :: stack = stack in (cstack, stack, c), if Value.to_int x == 0 then env#labeled name else progRem
+        | CJMP ("nz", name), _            -> let x :: stack = stack in (cstack, stack, c), if Value.to_int x != 0 then env#labeled name else progRem
         | BEGIN (_, args, locals), _      ->
-                let rec split n l = if n == 0 then ([], l) else let pref, suf = split (n - 1) (tl l) in hd l :: pref, suf in
                 let argv, stack = split (length args) stack in
                 let st = fold_right2 State.update (rev args) argv (State.enter st (args @ locals)) in
                 (cstack, stack, (st, i, o)), progRem
@@ -120,9 +121,8 @@ let compile (defs, stmt) =
     in
     let getLabel cNum = "__l" ^ string_of_int cNum, cNum + 1 in
     let rec compileImpl lState = function
-        | Stmt.Read x -> [READ; ST x], lState
-        | Stmt.Write t -> (compExpr t) @ [WRITE], lState
-        | Stmt.Assign (name, ex) -> (compExpr ex) @ [ST name], lState
+        | Stmt.Assign (name, [], ex) -> (compExpr ex) @ [ST name], lState
+        | Stmt.Assign (name, l, ex) -> (concat (map compExpr l)) @ (compExpr ex) @ [STA (name, length l)], lState
         | Stmt.Seq (s1, s2) ->
                 let code1, lState = compileImpl lState s1 in
                 let code2, lState = compileImpl lState s2 in
