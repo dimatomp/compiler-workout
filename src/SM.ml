@@ -1,6 +1,7 @@
-open GT       
+open GT
 open Language
-       
+open List
+
 (* The type for the stack machine instructions *)
 @type insn =
 (* binary operator                 *) | BINOP   of string
@@ -27,8 +28,6 @@ with show
                                                    
 (* The type for the stack machine program *)
 type prg = insn list
-
-let print_prg p = List.iter (fun i -> Printf.printf "%s\n" (show(insn) i)) p
                             
 (* The type for the stack machine configuration: control stack, stack and configuration from statement
    interpreter
@@ -41,15 +40,44 @@ type config = (prg * State.t) list * Value.t list * Expr.config
 
    Takes an environment, a configuration and a program, and returns a configuration as a result. The
    environment is used to locate a label to jump to (via method env#labeled <label_name>)
-*)                                                  
+*)
 let split n l =
   let rec unzip (taken, rest) = function
   | 0 -> (List.rev taken, rest)
   | n -> let h::tl = rest in unzip (h::taken, tl) (n-1)
   in
   unzip ([], l) n
-          
-let rec eval env ((cstack, stack, ((st, i, o) as c)) as conf) _ = failwith "Not yet implemented"
+        
+let rec eval env ((cstack, stack, ((st, i, o) as c)) as conf) = function
+    | [] -> conf
+    | cInst :: progRem ->
+        let cCfg, cont = match (cInst, cstack) with
+        | BINOP op, _                                 ->
+                let x :: y :: stack = stack in
+                let calcResult = Value.of_int @@ Expr.evalBinop op (Value.to_int y) (Value.to_int x) in
+                (cstack, calcResult :: stack, c), progRem
+        | CONST v, _                                  -> (cstack, Value.of_int v :: stack, c), progRem
+        | STRING v, _                                 -> (cstack, Value.of_string v :: stack, c), progRem
+        | LD name, _                                  -> (cstack, State.eval st name :: stack, c), progRem
+        | ST name, _                                  -> let x :: stack = stack in (cstack, stack, (State.update name x st, i, o)), progRem
+        | STA (name, indices), _                      ->
+                let x :: stack = stack in
+                let indices, stack = split indices stack in
+                (cstack, stack, (Stmt.update st name x (rev indices), i, o)), progRem
+        | LABEL name, _                               -> conf, progRem
+        | JMP name, _                                 -> conf, env#labeled name
+        | CJMP ("z", name), _                         -> let x :: stack = stack in (cstack, stack, c), if Value.to_int x == 0 then env#labeled name else progRem
+        | CJMP ("nz", name), _                        -> let x :: stack = stack in (cstack, stack, c), if Value.to_int x != 0 then env#labeled name else progRem
+        | BEGIN (_, args, locals), _                  ->
+                let argv, stack = split (length args) stack in
+                let st = fold_right2 State.update (rev args) argv (State.enter st (args @ locals)) in
+                (cstack, stack, (st, i, o)), progRem
+        | RET _, (progRem, oSt) :: cstack             -> (cstack, stack, (State.leave st oSt, i, o)), progRem
+        | RET _, []                                   -> conf, []
+        | CALL (name, n, f), _ when env#is_label name -> ((progRem, st) :: cstack, stack, c), env#labeled name
+        | CALL (name, n, f), _                        -> env#builtin conf name n (not f), progRem
+        in
+        eval env cCfg cont
 
 (* Top-level evaluation
 
@@ -58,7 +86,6 @@ let rec eval env ((cstack, stack, ((st, i, o) as c)) as conf) _ = failwith "Not 
    Takes a program, an input stream, and returns an output stream this program calculates
 *)
 let run p i =
-  (* print_prg p; *)
   let module M = Map.Make (String) in
   let rec make_map m = function
   | []              -> m
@@ -125,4 +152,3 @@ let compile (defs, p) =
   let lend, env = env#get_label in
   let _, flag, code = compile_stmt lend env p in
   (if flag then code @ [LABEL lend] else code) @ [END] @ (List.concat def_code) 
-

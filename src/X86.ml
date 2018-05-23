@@ -82,6 +82,7 @@ let show instr =
 
 (* Opening stack machine to use instructions without fully qualified names *)
 open SM
+open List
 
 (* Symbolic stack machine evaluator
 
@@ -264,7 +265,9 @@ module S = Set.Make (String)
 module M = Map.Make (String)
 
 (* Environment implementation *)
-let make_assoc l = List.combine l (List.init (List.length l) (fun x -> x))
+let make_assoc l = 
+    let rec revInit n = if n <= 0 then [] else (n - 1) :: revInit (n - 1) in
+    List.combine l (List.rev (revInit (List.length l)))
                      
 class env =
   object (self)
