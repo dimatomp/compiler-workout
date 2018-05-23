@@ -115,6 +115,7 @@ let compile (defs, stmt) =
     let genCall compExpr name args func = (concat (map compExpr args)) @ [CALL (name, length args, func)] in
     let rec compExpr = function
         | Expr.Const x -> [CONST x]
+        | Expr.String s -> [STRING s]
         | Expr.Var s -> [LD s]
         | Expr.Binop (op, f, s) -> (compExpr f) @ (compExpr s) @ [BINOP op]
         | Expr.Call (name, args) -> genCall compExpr name args true
