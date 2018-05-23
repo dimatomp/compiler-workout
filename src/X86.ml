@@ -112,8 +112,8 @@ let rec compile env = function
                             | _ -> [Mov (x, eax); Binop (name, y, eax); Mov (eax, x)]
                             in env#push x, commands
             | CONST cst -> let x, env = env#allocate in env, [Mov (L cst, x)]
-            | READ -> let x, env = env#allocate in env, [Call "Lread"; Mov (eax, x)]
-            | WRITE -> let x, env = env#pop in env, [Mov (x, eax); Push eax; Call "Lwrite"; Binop ("+", L 4, esp)]
+            (*| READ -> let x, env = env#allocate in env, [Call "Lread"; Mov (eax, x)]*)
+            (*| WRITE -> let x, env = env#pop in env, [Mov (x, eax); Push eax; Call "Lwrite"; Binop ("+", L 4, esp)]*)
             | LD name -> let env = env#global name in let x, env = env#allocate in env, [Mov (env#loc name, eax); Mov (eax, x)]
             | ST name -> let x, env = (env#global name)#pop in env, [Mov (x, eax); Mov (eax, env#loc name)]
             | LABEL name -> env, [Label name]

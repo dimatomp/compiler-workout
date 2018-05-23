@@ -179,10 +179,12 @@ module Expr =
                 )
                 primary
               );
-      primary: call | n:IDENT {Var n} | x:DECIMAL {Const x} | s:STRING {String s} | len | elem | arr | parent;
-      len: x:primary "." "length" {Call ("$length", [x])};
-      elem: x:primary "[" idx:parse "]" {Call ("$elem", [x; idx])};
-      arr: "[" l:!(Util.list0)[parse] "]" {Call ("$array", l)};
+      primary: x:atom indices:(-"[" parse -"]")* length:(-"." -"length")? {
+        let elem = fold_left (fun ex idx -> Call ("$elem", [ex; idx])) x indices in
+        match length with Some _ -> Call ("$length", [elem]) | None -> elem 
+      };
+      atom: call | arr | x:IDENT {Var x} | x:DECIMAL {Const x} | x:CHAR {Const (Char.code x)} | s:STRING {String (String.sub s 1 (String.length s - 2))} | parent;
+      arr: "[" ex:!(Util.list0)[parse] "]" {Call ("$array", ex)};
       call: name:IDENT "(" args:!(Util.list0)[parse] ")" {Call (name, args)};
       parent: -"(" parse -")"
     )
@@ -227,7 +229,7 @@ module Stmt =
         function
         | Assign (var, indices, ex) ->
                 let st, i, o, idxs = Expr.eval_list env conf indices in
-                let st, i, o, Some v = Expr.eval env conf ex in
+                let st, i, o, Some v = Expr.eval env (st, i, o, r) ex in
                 proceed (update st var v idxs) i o
         | Seq (s1, s2) -> eval env conf (match k with | Skip -> s2 | _ -> Seq (s2, k)) s1
         | Skip -> proceed st i o

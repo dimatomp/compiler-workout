@@ -6,7 +6,7 @@ SOURCES = Language.ml SM.ml X86.ml Driver.ml
 LIBS = GT.cma unix.cma re.cma emacs/re_emacs.cma str/re_str.cma 
 CAMLP5 = -pp "camlp5o -I `ocamlfind -query GT.syntax` -I `ocamlfind -query ostap.syntax` pa_ostap.cmo pa_gt.cmo -L `ocamlfind -query GT.syntax`"
 PXFLAGS = $(CAMLP5)
-BFLAGS = -rectypes -I `ocamlfind -query GT` -I `ocamlfind -query re`  -I `ocamlfind -query ostap` 
+BFLAGS = -g -rectypes -I `ocamlfind -query GT` -I `ocamlfind -query re`  -I `ocamlfind -query ostap` 
 OFLAGS = $(BFLAGS)
 
 all: .depend $(TOPFILE).opt
