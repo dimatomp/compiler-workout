@@ -31,7 +31,7 @@ module Value =
     let of_array  a = Array  a
 
     let update_string s i x = String.init (String.length s) (fun j -> if j = i then x else s.[j])
-    let update_array  a i x = List.init   (List.length a)   (fun j -> if j = i then x else List.nth a j)
+    let rec update_array (h::t) i x = if i == 0 then x::t else h::(update_array t (i - 1) x)
 
   end
        
