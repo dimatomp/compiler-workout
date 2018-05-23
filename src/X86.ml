@@ -123,6 +123,7 @@ let rec compile env = function
             | RET true -> let x, env = env#pop in env, [Mov (x, eax); Pop ebp; Ret]
             | RET false -> env, [Pop ebp; Ret]
             | CALL (name, arglen, func) -> 
+                    let name = match name with | "write" -> "Lwrite" | "read" -> "Lread" | _ -> name in
                     let rec argStrip env = function
                         | 0 -> [], env
                         | n -> let x, env = env#pop in let l, env = argStrip env (n - 1) in x :: l, env
