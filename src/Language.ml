@@ -12,7 +12,7 @@ open Combinators
 module Value =
   struct
 
-    @type t = Int of int | String of string | Array of t list with show
+    @type t = Int of int | String of string | Array of t list | Sexp of string * t list with show
 
     let to_int = function 
     | Int n -> n 
@@ -30,6 +30,10 @@ module Value =
     let of_int    n = Int    n
     let of_string s = String s
     let of_array  a = Array  a
+
+    let tag_of = function
+    | Sexp (t, _) -> t
+    | _ -> failwith "symbolic expression expected"
 
     let update_string s i x = String.init (String.length s) (fun j -> if j = i then x else s.[j])
     let rec update_array (h::t) i x = if i == 0 then x::t else h::(update_array t (i - 1) x)
@@ -130,6 +134,7 @@ module Expr =
     @type t =
     (* integer constant   *) | Const  of int
     (* string             *) | String of string
+    (* S-expressions      *) | Sexp   of string * t list
     (* variable           *) | Var    of string
     (* binary operator    *) | Binop  of string * t * t
     (* function call      *) | Call   of string * t list with show
@@ -196,6 +201,7 @@ module Expr =
     let rec eval env ((st, i, o, r) as conf) = function
         | Const r -> st, i, o, Some (Value.of_int r)
         | String s -> st, i, o, Some (Value.of_string s)
+        | Sexp (name, args) -> let st, i, o, argv = eval_list env conf args in st, i, o, Some (Sexp (name, argv))
         | Var s -> st, i, o, Some (State.eval st s)
         | Binop (op, a, b) ->
                 let ( _, _, _, Some a) as conf = eval env conf a in
@@ -237,8 +243,9 @@ module Expr =
         let elem = fold_left (fun ex idx -> Call ("$elem", [ex; idx])) x indices in
         match length with Some _ -> Call ("$length", [elem]) | None -> elem 
       };
-      atom: call | arr | x:IDENT {Var x} | x:DECIMAL {Const x} | x:CHAR {Const (Char.code x)} | s:STRING {String (String.sub s 1 (String.length s - 2))} | parent;
+      atom: sexp | call | arr | x:IDENT {Var x} | x:DECIMAL {Const x} | x:CHAR {Const (Char.code x)} | s:STRING {String (String.sub s 1 (String.length s - 2))} | parent;
       arr: "[" ex:!(Util.list0)[parse] "]" {Call ("$array", ex)};
+      sexp: "`" name:IDENT "(" args:!(Util.list0)[parse] ")" {Sexp (name, args)};
       call: name:IDENT "(" args:!(Util.list0)[parse] ")" {Call (name, args)};
       parent: -"(" parse -")"
     )
@@ -262,7 +269,8 @@ module Stmt =
 
         (* Pattern parser *)                                 
         ostap (
-          parse: empty {failwith "Not implemented"}
+          parse: "`" name:IDENT "(" argv:!(Util.list0)[args] ")" {Sexp (name, argv)};
+          args: "-" {Wildcard} | s:IDENT {Ident s}
         )
         
         let vars p =
@@ -280,7 +288,7 @@ module Stmt =
     (* pattern-matching                 *) | Case   of Expr.t * (Pattern.t * t) list
     (* return statement                 *) | Return of Expr.t option
     (* call a procedure                 *) | Call   of string * Expr.t list
-    (* leave a scope                    *) | Leave  with show
+    (* leave a scope                    *) | Leave with show
 
     (* Statement evaluator
 
@@ -301,8 +309,9 @@ module Stmt =
       in
       State.update x (match is with [] -> v | _ -> update (State.eval st x) v is) st
           
-    let rec eval env ((st, i, o, r) as conf) k  =
+    let rec eval env ((st, i, o, r) as conf) k =
         let proceed st i o = let conf = (st, i, o, None) in match k with | Skip -> conf | _ -> eval env conf Skip k in
+        let is_some = function | Some v -> true | None -> false in
         function
         | Assign (var, indices, ex) ->
                 let st, i, o, idxs = Expr.eval_list env conf indices in
@@ -311,6 +320,20 @@ module Stmt =
         | Seq (s1, s2) -> eval env conf (match k with | Skip -> s2 | _ -> Seq (s2, k)) s1
         | Skip -> proceed st i o
         | If (cond, tbrc, fbrc) -> let (st, i, o, Some r) as conf = Expr.eval env conf cond in eval env (st, i, o, None) k (if Value.to_int r != 0 then tbrc else fbrc)
+        | Case (ex, brc) ->
+                let (st, i, o, Some v) as conf = Expr.eval env conf ex in
+                let rec matches value = function
+                | Pattern.Sexp (name, args) -> (match value with
+                        | Value.Sexp (tag, argv) when name == tag ->
+                                let argMatch = map2 matches argv args in
+                                if for_all is_some argMatch then Some (concat (List.map (fun (Some x) -> x) argMatch)) else None
+                        | _                                       -> None)
+                | Pattern.Ident name -> Some [(name, value)]
+                | Pattern.Wildcard -> Some []
+                in
+                let Some (localVars, body) = find is_some @@ List.map (fun p, b -> match matches v p with | Some l -> Some (l, b) | None -> None) brc in
+                eval env (State.push st (fun a -> assoc a localVars) (List.map (fun x, _ -> x) localVars), i, o, None) k body
+        | Leave -> proceed (State.drop st) i o
         | While (cond, body) as stmt ->
                 let (st, i, o, Some r) as conf = Expr.eval env conf cond in
                 if Value.to_int r != 0 then eval env conf (Seq (stmt, k)) body else proceed st i o
@@ -321,7 +344,7 @@ module Stmt =
     (* Statement parser *)
     ostap (
       parse: !(Util.list0ByWith)[ostap (";")][singleOp][fun x h -> Seq (x, h)][Skip];
-      singleOp: assign | skip | cond | whle | repeat | foreach | return | call;
+      singleOp: assign | skip | cond | case | whle | repeat | foreach | return | call;
       assign: x:IDENT idx:(-"[" !(Expr.parse) -"]")* ":=" ex:!(Expr.parse) {Assign (x, idx, ex)};
       skip: "skip" {Skip};
       cond: "if" c:!(Expr.parse) "then" t:parse f:condElse {If (c, t, f)};
@@ -330,7 +353,8 @@ module Stmt =
       repeat: "repeat" b:parse "until" c:!(Expr.parse) {Seq (b, While (Expr.Binop ("==", c, Expr.Const 0), b))};
       foreach: "for" ini:parse "," c:!(Expr.parse) "," inc:parse "do" b:parse "od" {Seq (ini, While (c, Seq (b, inc)))};
       return: "return" ex:!(Expr.parse)? {Return ex};
-      call: c:!(Expr.call) {let Expr.Call (name, args) = c in Call (name, args)}
+      call: c:!(Expr.call) {let Expr.Call (name, args) = c in Call (name, args)};
+      case: "case" x:!(Expr.parse) "of" case:!(Util.list0By)[ostap ("|")][ostap (!(Pattern.parse) -"->" parse)] "esac" {Case (x, case)}
     )
 
   end
