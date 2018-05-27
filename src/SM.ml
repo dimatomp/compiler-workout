@@ -124,8 +124,15 @@ let compile (defs, p) =
   let rec call f args p =
     let args_code = List.concat @@ List.map expr args in
     args_code @ [CALL (label f, List.length args, p)]
-  and pattern lfalse _ = failwith "Not implemented"
-  and bindings p = failwith "Not implemented"
+  and pattern lfalse = function
+  | Stmt.Pattern.Wildcard -> []
+  | Stmt.Pattern.Ident s -> [ST s]
+  | Stmt.Pattern.Sexp (name, args) -> DUP :: TAG name :: CJMP ("z", lfalse) :: bindings args lfalse
+  and bindings p lfalse = 
+    let rec compareArgs lnum = function
+    | [] -> [DROP]
+    | arg::rem -> DUP :: CONST lnum :: SWAP :: CALL (".elem", 2, false) :: pattern lfalse arg @ compareArgs (lnum + 1) rem
+    in compareArgs 0 p
   and expr = function
   | Expr.Const n -> [CONST n]
   | Expr.String s -> [STRING s]
@@ -135,30 +142,41 @@ let compile (defs, p) =
   | Expr.Call (name, args) -> call name args false
   in
   let rec compile_stmt l env = function
-  | Stmt.Assign (var, [], ex) -> env, false, expr ex @ [ST var]
-  | Stmt.Assign (var, idx, ex) -> env, false, concat (map expr idx) @ expr ex @ [STA (var, length idx)]
+  | Stmt.Assign (var, [], ex) -> env, true, expr ex @ [ST var]
+  | Stmt.Assign (var, idx, ex) -> env, true, concat (map expr idx) @ expr ex @ [STA (var, length idx)]
   | Stmt.Seq (e1, e2) -> 
-          let env, false, c1 = compile_stmt l env e1 in
-          let env, false, c2 = compile_stmt l env e2 in
-          env, false, c1 @ c2
-  | Stmt.Skip -> env, false, []
+          let env, true, c1 = compile_stmt l env e1 in
+          let env, true, c2 = compile_stmt l env e2 in
+          env, true, c1 @ c2
+  | Stmt.Skip -> env, true, []
   | Stmt.If (cond, tbrc, fbrc) ->
           let condCode = expr cond in
           let fBranch, env = env#get_label in
           let ifEnd, env = env#get_label in
-          let env, false, trueCode = compile_stmt l env tbrc in
-          let env, false, falseCode = compile_stmt l env fbrc in
-          env, false, condCode @ [CJMP ("z", fBranch)] @ trueCode @ [JMP ifEnd; LABEL fBranch] @ falseCode @ [LABEL ifEnd]
-  | Stmt.Leave -> env, false, [LEAVE]
+          let env, true, trueCode = compile_stmt l env tbrc in
+          let env, true, trueCode = compile_stmt l env fbrc in
+          env, true, condCode @ [CJMP ("z", fBranch)] @ trueCode @ [JMP ifEnd; LABEL fBranch] @ trueCode @ [LABEL ifEnd]
+  | Stmt.Leave -> env, true, [LEAVE]
   | Stmt.While (cond, body) -> 
           let wBegin, env = env#get_label in 
           let condCode = expr cond in
           let wEnd, env = env#get_label in
-          let env, false, bodyCode = compile_stmt l env body in
-          env, false, (LABEL wBegin :: condCode) @ [CJMP ("z", wEnd)] @ bodyCode @ [JMP wBegin]
-  | Stmt.Return None -> env, false, [RET true]
-  | Stmt.Return (Some ex) -> env, false, expr ex @ [RET false]
-  | Stmt.Call (name, args) -> env, false, call name args true
+          let env, true, bodyCode = compile_stmt l env body in
+          env, true, (LABEL wBegin :: condCode) @ [CJMP ("z", wEnd)] @ bodyCode @ [JMP wBegin]
+  | Stmt.Return None -> env, true, [JMP l]
+  | Stmt.Return (Some ex) -> env, true, expr ex @ [JMP l]
+  | Stmt.Call (name, args) -> env, true, call name args true
+  | Stmt.Case (ex, patterns) ->
+          let exCode = expr ex in
+          let retLabel, env = env#get_label in
+          let exitLabel, env = env#get_label in
+          let genCase (env, caseBody) (pat, body) = 
+            let nonMatched, env = env#get_label in
+            let env, true, bodyCode = compile_stmt retLabel env body in
+            env, caseBody @ ENTER (Stmt.Pattern.vars pat) :: pattern retLabel pat @ bodyCode @ [JMP exitLabel; LABEL nonMatched; LEAVE]
+          in
+          let env, cases = fold_left genCase (env, []) patterns in
+          env, true, exCode @ cases @ [LABEL retLabel; LEAVE; JMP l; LABEL exitLabel; LEAVE]
   in
   let compile_def env (name, (args, locals, stmt)) =
     let lend, env       = env#get_label in
@@ -166,7 +184,8 @@ let compile (defs, p) =
     env,
     [LABEL name; BEGIN (name, args, locals)] @
     code @
-    [RET true]
+    (if flag then [LABEL lend] else []) @
+    [END]
   in
   let env =
     object
