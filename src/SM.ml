@@ -126,16 +126,47 @@ let compile (defs, p) =
     args_code @ [CALL (label f, List.length args, p)]
   and pattern lfalse _ = failwith "Not implemented"
   and bindings p = failwith "Not implemented"
-  and expr e = failwith "Not implemented" in
-  let rec compile_stmt l env stmt =  failwith "Not implemented" in
+  and expr = function
+  | Expr.Const n -> [CONST n]
+  | Expr.String s -> [STRING s]
+  | Expr.Sexp (name, args) -> concat (map expr args) @ [SEXP (name, length args)]
+  | Expr.Var name -> [LD name]
+  | Expr.Binop (op, a, b) -> expr a @ expr b @ [BINOP op]
+  | Expr.Call (name, args) -> call name args false
+  in
+  let rec compile_stmt l env = function
+  | Stmt.Assign (var, [], ex) -> env, false, expr ex @ [ST var]
+  | Stmt.Assign (var, idx, ex) -> env, false, concat (map expr idx) @ expr ex @ [STA (var, length idx)]
+  | Stmt.Seq (e1, e2) -> 
+          let env, false, c1 = compile_stmt l env e1 in
+          let env, false, c2 = compile_stmt l env e2 in
+          env, false, c1 @ c2
+  | Stmt.Skip -> env, false, []
+  | Stmt.If (cond, tbrc, fbrc) ->
+          let condCode = expr cond in
+          let fBranch, env = env#get_label in
+          let ifEnd, env = env#get_label in
+          let env, false, trueCode = compile_stmt l env tbrc in
+          let env, false, falseCode = compile_stmt l env fbrc in
+          env, false, condCode @ [CJMP ("z", fBranch)] @ trueCode @ [JMP ifEnd; LABEL fBranch] @ falseCode @ [LABEL ifEnd]
+  | Stmt.Leave -> env, false, [LEAVE]
+  | Stmt.While (cond, body) -> 
+          let wBegin, env = env#get_label in 
+          let condCode = expr cond in
+          let wEnd, env = env#get_label in
+          let env, false, bodyCode = compile_stmt l env body in
+          env, false, (LABEL wBegin :: condCode) @ [CJMP ("z", wEnd)] @ bodyCode @ [JMP wBegin]
+  | Stmt.Return None -> env, false, [RET true]
+  | Stmt.Return (Some ex) -> env, false, expr ex @ [RET false]
+  | Stmt.Call (name, args) -> env, false, call name args true
+  in
   let compile_def env (name, (args, locals, stmt)) =
     let lend, env       = env#get_label in
     let env, flag, code = compile_stmt lend env stmt in
     env,
     [LABEL name; BEGIN (name, args, locals)] @
     code @
-    (if flag then [LABEL lend] else []) @
-    [END]
+    [RET true]
   in
   let env =
     object
