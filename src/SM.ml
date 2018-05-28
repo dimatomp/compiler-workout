@@ -133,7 +133,7 @@ let compile (defs, p) =
   let label s = "L" ^ s in
   let rec call f args p =
     let args_code = List.concat @@ List.map expr args in
-    args_code @ [CALL (label f, List.length args, p)]
+    args_code @ [CALL (f, List.length args, p)]
   and pattern lfalse = function
   | Stmt.Pattern.Wildcard -> []
   | Stmt.Pattern.Ident s -> [ST s]
@@ -141,7 +141,7 @@ let compile (defs, p) =
   and bindings p lfalse = 
     let rec compareArgs lnum = function
     | [] -> [DROP]
-    | arg::rem -> DUP :: CONST lnum :: SWAP :: CALL (".elem", 2, false) :: pattern lfalse arg @ compareArgs (lnum + 1) rem
+    | arg::rem -> DUP :: CONST lnum :: CALL (".elem", 2, false) :: pattern lfalse arg @ compareArgs (lnum + 1) rem
     in compareArgs 0 p
   and expr = function
   | Expr.Const n -> [CONST n]
@@ -183,7 +183,7 @@ let compile (defs, p) =
           let genCase (env, flag, caseBody) (pat, body) = 
             let nonMatched, env = env#get_label in
             let env, flag1, bodyCode = compile_stmt retLabel env body in
-            env, flag || flag1, caseBody @ ENTER (Stmt.Pattern.vars pat) :: pattern retLabel pat @ bodyCode @ [JMP exitLabel; LABEL nonMatched; LEAVE]
+            env, flag || flag1, caseBody @ ENTER (Stmt.Pattern.vars pat) :: pattern nonMatched pat @ bodyCode @ [JMP exitLabel; LABEL nonMatched; LEAVE]
           in
           let env, flag, cases = fold_left genCase (env, false, []) patterns in
           env, flag, exCode @ cases @ [LABEL retLabel; LEAVE; JMP l; LABEL exitLabel; LEAVE]
@@ -204,7 +204,7 @@ let compile (defs, p) =
   in
   let env, def_code =
     List.fold_left
-      (fun (env, code) (name, others) -> let env, code' = compile_def env (label name, others) in env, code'::code)
+      (fun (env, code) (name, others) -> let env, code' = compile_def env (name, others) in env, code'::code)
       (env, [])
       defs
   in
