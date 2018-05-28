@@ -240,12 +240,12 @@ module Expr =
                 primary
               );
       primary: x:atom indices:(-"[" parse -"]")* length:(-"." -"length")? {
-        let elem = fold_left (fun ex idx -> Call ("$elem", [ex; idx])) x indices in
-        match length with Some _ -> Call ("$length", [elem]) | None -> elem 
+        let elem = fold_left (fun ex idx -> Call (".elem", [ex; idx])) x indices in
+        match length with Some _ -> Call (".length", [elem]) | None -> elem
       };
       atom: sexp | call | arr | x:IDENT {Var x} | x:DECIMAL {Const x} | x:CHAR {Const (Char.code x)} | s:STRING {String (String.sub s 1 (String.length s - 2))} | parent;
-      arr: "[" ex:!(Util.list0)[parse] "]" {Call ("$array", ex)};
-      sexp: "`" name:IDENT "(" args:!(Util.list0)[parse] ")" {Sexp (name, args)};
+      arr: "[" ex:!(Util.list0)[parse] "]" {Call (".array", ex)};
+      sexp: "`" name:IDENT args:(-"(" !(Util.list0)[parse] -")")? {Sexp (name, match args with Some l -> l | None -> [])};
       call: name:IDENT "(" args:!(Util.list0)[parse] ")" {Call (name, args)};
       parent: -"(" parse -")"
     )
@@ -269,7 +269,7 @@ module Stmt =
 
         (* Pattern parser *)                                 
         ostap (
-          parse: "`" name:IDENT "(" argv:!(Util.list0)[args] ")" {Sexp (name, argv)};
+          parse: "`" name:IDENT argv:(-"(" !(Util.list0)[args] -")")? {Sexp (name, match argv with Some l -> l | None -> [])};
           args: "-" {Wildcard} | s:IDENT {Ident s}
         )
         

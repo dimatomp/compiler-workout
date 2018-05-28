@@ -163,15 +163,15 @@ let compile (defs, p) =
           let fBranch, env = env#get_label in
           let ifEnd, env = env#get_label in
           let env, flag1, trueCode = compile_stmt l env tbrc in
-          let env, flag2, trueCode = compile_stmt l env fbrc in
-          env, flag1 || flag2, condCode @ [CJMP ("z", fBranch)] @ trueCode @ [JMP ifEnd; LABEL fBranch] @ trueCode @ [LABEL ifEnd]
+          let env, flag2, falseCode = compile_stmt l env fbrc in
+          env, flag1 || flag2, condCode @ [CJMP ("z", fBranch)] @ trueCode @ [JMP ifEnd; LABEL fBranch] @ falseCode @ [LABEL ifEnd]
   | Stmt.Leave -> env, false, [LEAVE]
   | Stmt.While (cond, body) -> 
           let wBegin, env = env#get_label in 
           let condCode = expr cond in
           let wEnd, env = env#get_label in
           let env, flag, bodyCode = compile_stmt l env body in
-          env, flag, (LABEL wBegin :: condCode) @ [CJMP ("z", wEnd)] @ bodyCode @ [JMP wBegin]
+          env, flag, (LABEL wBegin :: condCode) @ [CJMP ("z", wEnd)] @ bodyCode @ [JMP wBegin; LABEL wEnd]
   | Stmt.Return None -> env, false, [JMP l]
   | Stmt.Return (Some ex) -> env, true, expr ex @ [JMP l]
   | Stmt.Call (name, args) -> env, false, call name args true
@@ -209,4 +209,4 @@ let compile (defs, p) =
   in
   let lend, env = env#get_label in
   let _, flag, code = compile_stmt lend env p in
-  code @ [LABEL lend; RET (not flag)]
+  code @ [LABEL lend; RET (not flag)] @ concat def_code
