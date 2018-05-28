@@ -58,6 +58,7 @@ let rec eval env ((cstack, stack, ((st, i, o) as c)) as conf) = function
                 (cstack, calcResult :: stack, c), progRem
         | CONST v, _                                  -> (cstack, Value.of_int v :: stack, c), progRem
         | STRING v, _                                 -> (cstack, Value.of_string v :: stack, c), progRem
+        | SEXP (name, argc), _                        -> let indices, stack = split argc stack in (cstack, Value.sexp name (rev indices) :: stack, c), progRem
         | LD name, _                                  -> (cstack, State.eval st name :: stack, c), progRem
         | ST name, _                                  -> let x::stack = stack in (cstack, stack, (State.update name x st, i, o)), progRem
         | STA (name, indices), _                      ->
