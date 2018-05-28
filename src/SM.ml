@@ -82,7 +82,7 @@ let rec eval env ((cstack, stack, ((st, i, o) as c)) as conf) = function
         | SWAP, _                                     -> let x::y::stack = stack in (cstack, y :: x :: stack, c), progRem
         | TAG name, _                                 -> 
                 let x::stack = stack in 
-                let res = Value.of_int @@ match x with | Value.Sexp (tag, _) when tag == name -> 1 | _ -> 0 in
+                let res = Value.of_int @@ match x with | Value.Sexp (tag, _) when tag = name -> 1 | _ -> 0 in
                 (cstack, res :: stack, c), progRem
         | ENTER vars, _                               -> (cstack, stack, (State.push st State.undefined vars, i, o)), progRem
         | LEAVE, _                                    -> (cstack, stack, (State.drop st, i, o)), progRem

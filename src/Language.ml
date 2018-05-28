@@ -324,7 +324,7 @@ module Stmt =
                 let (st, i, o, Some v) as conf = Expr.eval env conf ex in
                 let rec matches value = function
                 | Pattern.Sexp (name, args) -> (match value with
-                        | Value.Sexp (tag, argv) when name == tag ->
+                        | Value.Sexp (tag, argv) when name = tag ->
                                 let argMatch = map2 matches argv args in
                                 if for_all is_some argMatch then Some (concat (List.map (fun (Some x) -> x) argMatch)) else None
                         | _                                       -> None)
